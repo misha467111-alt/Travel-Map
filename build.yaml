@@ -1,0 +1,10 @@
+targets:
+  $default:
+    builders:
+      riverpod_generator:
+        generate_for:
+          - lib/features/auth/**.dart
+          - lib/features/friends/**.dart
+          - lib/features/map/**.dart
+          - lib/features/notifications/**.dart
+          - lib/features/profile/**.dart

@@ -1,0 +1,47 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+
+def envFile = rootProject.file('../.env')
+def envProperties = new Properties()
+if (envFile.exists()) {
+    envFile.withInputStream { envProperties.load(it) }
+}
+def googleMapsApiKey = envProperties.getProperty('GOOGLE_MAPS_ANDROID_API_KEY', '')
+
+android {
+    namespace "com.example.travel_map_final"
+    compileSdkVersion flutter.compileSdkVersion
+    ndkVersion flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    defaultConfig {
+        applicationId "com.example.travel_map_final"
+        minSdkVersion flutter.minSdkVersion
+        targetSdkVersion flutter.targetSdkVersion
+        versionCode flutter.versionCode.toInteger()
+        versionName flutter.versionName
+        manifestPlaceholders.googleMapsApiKey = googleMapsApiKey
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}

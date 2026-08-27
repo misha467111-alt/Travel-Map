@@ -1,0 +1,20 @@
+Travel Map full-feature merge
+
+Preserved and re-enabled from the original full project:
+- rich MapExplorerScreen with normal/hybrid forest-satellite toggle
+- 10 km radius filter and category chips
+- initial test locations / fallback markers
+- route building UI
+- feed/reels
+- chats
+- explorer network/tree
+- gamified profile tabs
+
+Kept fixes:
+- single application-level MaterialApp.router bootstrap
+- safer profile dialog lifecycle
+- avatars bucket integration
+- separate Android/iOS Google Maps key configuration
+- Supabase profile permission migration
+
+Important: authorized root now opens MainNavigationScreen instead of the reduced MapScreen.
