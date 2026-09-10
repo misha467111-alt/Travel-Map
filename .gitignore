@@ -51,6 +51,11 @@ ios/build/
 .adb-home/
 .audit-tools/
 .tool-appdata/
+/MERGE_NOTES.txt
+/ACHIEVEMENTS_5_LEVELS_NOTES.txt
+/UNIFIED_FEATURES_NOTES.txt
+/SCREEN1_CHECKPOINT_V2.md
+/screen1_current_diff.txt
 *.xml
 !android/**/*.xml
 !ios/**/*.xml
