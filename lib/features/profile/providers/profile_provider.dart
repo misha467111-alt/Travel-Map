@@ -76,8 +76,15 @@ class ProfileRepository {
       'display_name': name,
       'name': name,
     }).eq('id', user.id);
-    await _supabase.auth.updateUser(
-        UserAttributes(data: {'username': name, 'display_name': name}));
+    try {
+      await _supabase.auth.updateUser(
+          UserAttributes(data: {'username': name, 'display_name': name}));
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Profile row updated; auth metadata sync deferred: '
+            '$error\n$stackTrace');
+      }
+    }
   }
 
   Future<String> uploadAvatar(Uint8List bytes,
@@ -97,7 +104,15 @@ class ProfileRepository {
     await _supabase.from('profiles').update({
       'avatar_url': url,
     }).eq('id', user.id);
-    await _supabase.auth.updateUser(UserAttributes(data: {'avatar_url': url}));
+    try {
+      await _supabase.auth
+          .updateUser(UserAttributes(data: {'avatar_url': url}));
+    } catch (error, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('Avatar persisted; auth metadata sync deferred: '
+            '$error\n$stackTrace');
+      }
+    }
     return url;
   }
 }

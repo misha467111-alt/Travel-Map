@@ -1,0 +1,5 @@
+-- SUPERSEDED BEFORE APPLY.
+-- The reviewed migration was moved to the chronologically safe active version:
+--   supabase/migrations/202609040002_trusted_ai_location_moderation.sql
+-- Version 202609020001 was never applied to production and intentionally
+-- contains no executable SQL in the active migration chain.

@@ -12,19 +12,23 @@ class ChatsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-        appBar: AppBar(title: const Text('Чати')),
+        appBar: AppBar(
+          toolbarHeight: 52,
+          title: const Text('Чати',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+        ),
         body: ref.watch(acceptedFriendsProvider).when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (error, _) => Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
-                  child: Text('Не вдалося завантажити чати: $error'),
+                  child: const Text('Не вдалося завантажити чати.'),
                 ),
               ),
               data: (friends) => friends.isEmpty
                   ? const _EmptyChats()
                   : ListView.builder(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
                       itemCount: friends.length,
                       itemBuilder: (_, index) =>
                           _ConversationCard(friend: friends[index]),
@@ -42,9 +46,12 @@ class _ConversationCard extends ConsumerWidget {
     final messages = ref.watch(chatStreamProvider(friend.id)).value;
     final last = messages?.isNotEmpty == true ? messages!.last : null;
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: 4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        dense: true,
+        visualDensity: const VisualDensity(vertical: -2),
         leading: _Avatar(friend: friend),
         title: Text(friend.name, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text(
@@ -97,10 +104,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
+          toolbarHeight: 52,
           titleSpacing: 0,
           title: Row(children: [
-            _Avatar(friend: widget.friend, radius: 18),
-            const SizedBox(width: 10),
+            _Avatar(friend: widget.friend, radius: 16),
+            const SizedBox(width: 8),
             Expanded(
                 child:
                     Text(widget.friend.name, overflow: TextOverflow.ellipsis)),
@@ -121,11 +129,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: ref.watch(chatStreamProvider(widget.friend.id)).when(
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
-                  error: (error, _) => Center(child: Text('$error')),
+                  error: (error, _) => const Center(
+                    child: Text('Не вдалося завантажити повідомлення.'),
+                  ),
                   data: (rows) => rows.isEmpty
                       ? const Center(child: Text('Напишіть перше повідомлення'))
                       : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
                           itemCount: rows.length,
                           itemBuilder: (_, index) =>
                               _MessageBubble(row: rows[index]),
@@ -185,15 +195,15 @@ class _MessageBubble extends StatelessWidget {
       child: Container(
         constraints:
             BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * .78),
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 7),
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
         decoration: BoxDecoration(
           color: mine ? const Color(0xFF7A5910) : const Color(0xFF14231D),
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(mine ? 18 : 4),
-            bottomRight: Radius.circular(mine ? 4 : 18),
+            topLeft: const Radius.circular(11),
+            topRight: const Radius.circular(11),
+            bottomLeft: Radius.circular(mine ? 11 : 4),
+            bottomRight: Radius.circular(mine ? 4 : 11),
           ),
           border: Border.all(
             color: mine ? const Color(0x66D4A017) : Colors.white10,
@@ -230,19 +240,16 @@ class _EmptyChats extends StatelessWidget {
   const _EmptyChats();
   @override
   Widget build(BuildContext context) => Center(
-        child: Card(
-          margin: const EdgeInsets.all(28),
-          child: const Padding(
-            padding: EdgeInsets.all(28),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.forum_outlined, size: 52, color: Color(0xFFD4A017)),
-              SizedBox(height: 12),
-              Text('Ваші чати з’являться тут'),
-              SizedBox(height: 6),
-              Text('Додайте друга, щоб почати розмову.',
-                  textAlign: TextAlign.center),
-            ]),
-          ),
+        child: const Padding(
+          padding: EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.forum_outlined, size: 36, color: Color(0xFFD4A017)),
+            SizedBox(height: 8),
+            Text('Ваші чати з’являться тут'),
+            SizedBox(height: 4),
+            Text('Додайте друга, щоб почати розмову.',
+                textAlign: TextAlign.center),
+          ]),
         ),
       );
 }

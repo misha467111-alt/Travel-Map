@@ -92,9 +92,26 @@ class MapViewportBounds {
 }
 
 class MapViewportQuery {
-  const MapViewportQuery({required this.bounds, this.category});
+  const MapViewportQuery({
+    required this.bounds,
+    this.category,
+    this.userLatitude,
+    this.userLongitude,
+    this.maximumDistanceMeters,
+    this.minimumRating,
+    this.openNow = false,
+    this.familyOnly = false,
+    this.sort = 'newest',
+  });
   final MapViewportBounds bounds;
   final String? category;
+  final double? userLatitude;
+  final double? userLongitude;
+  final double? maximumDistanceMeters;
+  final double? minimumRating;
+  final bool openNow;
+  final bool familyOnly;
+  final String sort;
 
   @override
   bool operator ==(Object other) =>
@@ -103,7 +120,14 @@ class MapViewportQuery {
       other.bounds.minLongitude == bounds.minLongitude &&
       other.bounds.maxLatitude == bounds.maxLatitude &&
       other.bounds.maxLongitude == bounds.maxLongitude &&
-      other.category == category;
+      other.category == category &&
+      other.userLatitude == userLatitude &&
+      other.userLongitude == userLongitude &&
+      other.maximumDistanceMeters == maximumDistanceMeters &&
+      other.minimumRating == minimumRating &&
+      other.openNow == openNow &&
+      other.familyOnly == familyOnly &&
+      other.sort == sort;
 
   @override
   int get hashCode => Object.hash(
@@ -112,5 +136,12 @@ class MapViewportQuery {
         bounds.maxLatitude,
         bounds.maxLongitude,
         category,
+        userLatitude,
+        userLongitude,
+        maximumDistanceMeters,
+        minimumRating,
+        openNow,
+        familyOnly,
+        sort,
       );
 }

@@ -21,10 +21,16 @@ class OsrmRoutingService {
   Future<CalculatedRoute> buildRoute({
     required RoutePoint start,
     required RoutePoint end,
+    RouteTransportMode transportMode = RouteTransportMode.driving,
   }) async {
+    final profile = switch (transportMode) {
+      RouteTransportMode.driving => 'driving',
+      RouteTransportMode.walking => 'foot',
+      RouteTransportMode.cycling => 'bike',
+    };
     final uri = Uri.https(
       'router.project-osrm.org',
-      '/route/v1/driving/'
+      '/route/v1/$profile/'
           '${start.longitude},${start.latitude};'
           '${end.longitude},${end.latitude}',
       const {

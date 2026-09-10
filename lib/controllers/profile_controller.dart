@@ -310,6 +310,14 @@ class ProfileController extends ChangeNotifier {
     await prefs.setString('pref_avatar', localAvatarPath);
   }
 
+  Future<void> setOfflineMode(bool value) async {
+    if (isOfflineMode == value) return;
+    isOfflineMode = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('pref_offline', value);
+  }
+
   Future<void> toggleSaveLocation(String id) async {
     if (savedLocationIds.contains(id)) {
       savedLocationIds.remove(id);

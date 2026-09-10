@@ -15,7 +15,9 @@ class FriendsScreen extends ConsumerWidget {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Друзі'),
+          toolbarHeight: 52,
+          title: const Text('Друзі',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Мої друзі'),
@@ -136,7 +138,7 @@ class _SearchTabState extends ConsumerState<_SearchTab> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: TextField(
             controller: _controller,
             textInputAction: TextInputAction.search,
@@ -197,7 +199,19 @@ class _AsyncList<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     return value.when(
       data: (items) {
-        if (items.isEmpty) return Center(child: Text(emptyMessage));
+        if (items.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.people_outline,
+                    size: 44, color: Color(0xFFD4A017)),
+                const SizedBox(height: 12),
+                Text(emptyMessage, textAlign: TextAlign.center),
+              ]),
+            ),
+          );
+        }
         return RefreshIndicator(
           onRefresh: () async => onRefresh(),
           child: ListView.builder(
@@ -214,7 +228,8 @@ class _AsyncList<T> extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Помилка: $error', textAlign: TextAlign.center),
+              const Text('Не вдалося завантажити дані.',
+                  textAlign: TextAlign.center),
               const SizedBox(height: 12),
               FilledButton.icon(
                 onPressed: onRefresh,
@@ -239,6 +254,8 @@ class _ProfileTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final avatar = profile.avatarUrl;
     return Card(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
       child: ListTile(
         leading: CircleAvatar(
           backgroundImage:
@@ -250,8 +267,10 @@ class _ProfileTile extends StatelessWidget {
         title: Text(profile.name, maxLines: 1, overflow: TextOverflow.ellipsis),
         subtitle: Text('Профіль мандрівника',
             maxLines: 1, overflow: TextOverflow.ellipsis),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10),
         trailing: trailing,
+        dense: true,
+        visualDensity: const VisualDensity(vertical: -2),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) => UserProfileScreen(userId: profile.id),
@@ -262,10 +281,10 @@ class _ProfileTile extends StatelessWidget {
   }
 }
 
-void _showError(BuildContext context, Object error) {
+void _showError(BuildContext context, Object _) {
   ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text('Не вдалося виконати дію: $error'),
+    const SnackBar(
+      content: Text('Не вдалося виконати дію. Спробуйте ще раз.'),
       backgroundColor: Colors.red,
     ),
   );

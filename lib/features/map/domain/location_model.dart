@@ -16,6 +16,14 @@ class LocationModel {
     this.visibility = 'public',
     this.moderation = 'draft',
     this.updatedAt,
+    this.rating,
+    this.ratingsCount,
+    this.openingHours,
+    this.timezone,
+    this.isFamilyFriendly,
+    this.address,
+    this.amenities,
+    this.hasParking,
   });
 
   final String id;
@@ -31,6 +39,19 @@ class LocationModel {
   final String visibility;
   final String moderation;
   final DateTime? updatedAt;
+  final double? rating;
+  final int? ratingsCount;
+  final Map<String, dynamic>? openingHours;
+  final String? timezone;
+  final bool? isFamilyFriendly;
+  final String? address;
+  final List<String>? amenities;
+  final bool? hasParking;
+
+  List<String>? get presentedAmenities {
+    if (amenities != null) return amenities;
+    return hasParking == true ? const ['parking'] : null;
+  }
 
   Map<String, dynamic> toCacheMap() => {
         'id': id,
@@ -46,6 +67,14 @@ class LocationModel {
         'visibility': visibility,
         'moderation': moderation,
         'updated_at': updatedAt?.toIso8601String(),
+        'rating': rating,
+        'ratings_count': ratingsCount,
+        'opening_hours': openingHours,
+        'timezone': timezone,
+        'is_family_friendly': isFamilyFriendly,
+        'address': address,
+        'amenities': amenities,
+        'has_parking': hasParking,
       };
 
   factory LocationModel.fromMap(Map<String, dynamic> map) {
@@ -65,11 +94,38 @@ class LocationModel {
       visibility: _optionalString(map['visibility']) ?? 'public',
       moderation: _optionalString(map['moderation']) ?? 'draft',
       updatedAt: DateTime.tryParse(map['updated_at'] as String? ?? ''),
+      rating: (map['rating'] as num?)?.toDouble(),
+      ratingsCount: (map['ratings_count'] as num?)?.toInt(),
+      openingHours: map['opening_hours'] is Map
+          ? Map<String, dynamic>.from(map['opening_hours'] as Map)
+          : null,
+      timezone: _optionalString(map['timezone']),
+      isFamilyFriendly: map['is_family_friendly'] as bool?,
+      address: _optionalString(map['address']),
+      amenities: map['amenities'] is List
+          ? (map['amenities'] as List)
+              .whereType<String>()
+              .toList(growable: false)
+          : null,
+      hasParking: map['has_parking'] as bool?,
     );
   }
 
   static String _categoryFrom(dynamic value) {
-    const supported = {'general', 'cafe', 'nature', 'culture', 'entertainment'};
+    const supported = {
+      'general',
+      'cafe',
+      'nature',
+      'culture',
+      'entertainment',
+      'active_outdoors',
+      'viewpoints',
+      'historic',
+      'events',
+      'romance',
+      'shopping',
+      'kids',
+    };
     return value is String && supported.contains(value) ? value : 'general';
   }
 

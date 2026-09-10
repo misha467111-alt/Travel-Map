@@ -21,6 +21,10 @@ dependencies:
   go_router: ^14.8.1
   riverpod_annotation: ^4.0.6
   connectivity_plus: ^7.3.1
+dependency_overrides:
+  google_maps_flutter_android:
+    path: third_party/google_maps_flutter_android
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -31,8 +35,14 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/map_styles/travel_light_map.json
 
-flutter_icons:
+flutter_launcher_icons:
   image_path: "assets/icon/app_icon.png"
   android: true
   ios: true
+  remove_alpha_ios: true
+  adaptive_icon_background: "assets/icon/app_icon_background.png"
+  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  adaptive_icon_foreground_inset: 4

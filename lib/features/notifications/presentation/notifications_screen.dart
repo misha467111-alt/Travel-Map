@@ -13,14 +13,18 @@ class NotificationsScreen extends ConsumerWidget {
     final unreadCount = ref.watch(unreadNotificationsCountProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Сповіщення'),
+        toolbarHeight: 52,
+        titleSpacing: 0,
+        title: const Text('Сповіщення',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
         actions: [
           TextButton(
             onPressed: unreadCount == 0
                 ? null
                 : () =>
                     ref.read(notificationsRepositoryProvider).markAllAsRead(),
-            child: const Text('Прочитати всі'),
+            child: const Text('Прочитати всі',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -30,9 +34,10 @@ class NotificationsScreen extends ConsumerWidget {
             : RefreshIndicator(
                 onRefresh: () async => ref.invalidate(notificationsProvider),
                 child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 24),
                   physics: const AlwaysScrollableScrollPhysics(),
                   itemCount: items.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, __) => const SizedBox(height: 6),
                   itemBuilder: (context, index) => _NotificationTile(
                     notification: items[index],
                     onTap: () {
@@ -52,7 +57,7 @@ class NotificationsScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Не вдалося завантажити сповіщення: $error'),
+                const Text('Не вдалося завантажити сповіщення.'),
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed: () => ref.invalidate(notificationsProvider),
@@ -78,7 +83,8 @@ class _NotificationTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
       child: ListTile(
         onTap: onTap,
         tileColor: notification.isRead
@@ -92,13 +98,19 @@ class _NotificationTile extends StatelessWidget {
         ),
         title: Text(
           notification.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            fontWeight:
-                notification.isRead ? FontWeight.normal : FontWeight.w700,
+            fontWeight: notification.isRead ? FontWeight.w400 : FontWeight.w600,
           ),
         ),
-        subtitle: Text(notification.message),
-        trailing: Text(_formatDate(notification.createdAt)),
+        subtitle: Text(notification.message,
+            maxLines: 2, overflow: TextOverflow.ellipsis),
+        trailing: Text(_formatDate(notification.createdAt),
+            style: Theme.of(context).textTheme.labelSmall),
+        dense: true,
+        visualDensity: const VisualDensity(vertical: -2),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       ),
     );
   }
@@ -121,13 +133,19 @@ class _EmptyNotifications extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.notifications_none, size: 56),
-          SizedBox(height: 12),
-          Text('Нових сповіщень поки немає'),
-        ],
+      child: Padding(
+        padding: EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.notifications_none, size: 48, color: Color(0xFFD4A017)),
+            SizedBox(height: 12),
+            Text('Нових сповіщень поки немає', style: TextStyle(fontSize: 15)),
+            SizedBox(height: 4),
+            Text('Важливі оновлення з’являться тут.',
+                textAlign: TextAlign.center, style: TextStyle(fontSize: 13)),
+          ],
+        ),
       ),
     );
   }

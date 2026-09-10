@@ -26,13 +26,13 @@ class LocationsRepository {
     return page.items.map((item) => item.location).toList(growable: false);
   }
 
-  Future<List<LocationModel>> fetchLocationsInBounds(
+  Future<MapLocationResult> fetchLocationsInBounds(
     MapViewportQuery query, {
     int limit = 300,
   }) async {
     final bounds = query.bounds;
     final rows = await _supabase.rpc<List<dynamic>>(
-      'travel_locations_in_bounds',
+      'travel_locations_in_bounds_v2',
       params: {
         'p_min_lng': bounds.minLongitude,
         'p_min_lat': bounds.minLatitude,
@@ -40,14 +40,25 @@ class LocationsRepository {
         'p_max_lat': bounds.maxLatitude,
         'p_category': query.category,
         'p_search': null,
+        'p_user_latitude': query.userLatitude,
+        'p_user_longitude': query.userLongitude,
+        'p_max_distance_m': query.maximumDistanceMeters,
+        'p_min_rating': query.minimumRating,
+        'p_open_now': query.openNow,
+        'p_family_friendly_only': query.familyOnly,
+        'p_sort': query.sort,
         'p_limit': boundedPageSize(limit, maximum: 500),
       },
     );
-    return rows
+    final items = rows
         .map((row) => LocationQueryItem.fromRpcRow(
               Map<String, dynamic>.from(row as Map),
             ).location)
         .toList(growable: false);
+    final totalCount = rows.isEmpty
+        ? 0
+        : ((rows.first as Map)['total_count'] as num? ?? items.length).toInt();
+    return MapLocationResult(items: items, totalCount: totalCount);
   }
 
   Future<LocationPage> fetchDiscoverPage({
@@ -113,6 +124,45 @@ class LocationsRepository {
     return rows
         .map((row) => LocationModel.fromMap(Map<String, dynamic>.from(row)))
         .toList(growable: false);
+  }
+
+  Future<LocationDetailsData> fetchLocationDetails(String locationId) async {
+    final results = await Future.wait<dynamic>([
+      _supabase.from('locations').select().eq('id', locationId).single(),
+      _supabase
+          .from('location_photos')
+          .select('storage_path')
+          .eq('location_id', locationId)
+          .order('sort_order')
+          .limit(20),
+      _supabase
+          .from('location_tags')
+          .select('tags(name)')
+          .eq('location_id', locationId)
+          .limit(30),
+    ]);
+    final location = LocationModel.fromMap(
+      Map<String, dynamic>.from(results[0] as Map),
+    );
+    final bucket = _supabase.storage.from(_bucketName);
+    final photos = (results[1] as List)
+        .map((row) => (row as Map)['storage_path'])
+        .whereType<String>()
+        .map(bucket.getPublicUrl)
+        .toList(growable: false);
+    final tags = (results[2] as List)
+        .map((row) => (row as Map)['tags'])
+        .whereType<Map>()
+        .map((tag) => tag['name'])
+        .whereType<String>()
+        .where((name) => name.trim().isNotEmpty)
+        .map((name) => name.trim())
+        .toList(growable: false);
+    return LocationDetailsData(
+      location: location,
+      photoUrls: photos,
+      tags: tags,
+    );
   }
 
   Future<void> createLocation({
@@ -234,6 +284,18 @@ class LocationsRepository {
   }
 }
 
+class LocationDetailsData {
+  const LocationDetailsData({
+    required this.location,
+    required this.photoUrls,
+    required this.tags,
+  });
+
+  final LocationModel location;
+  final List<String> photoUrls;
+  final List<String> tags;
+}
+
 class _ImageType {
   const _ImageType(this.extension, this.contentType);
 
@@ -276,9 +338,23 @@ LocationsRepository locationsRepository(Ref ref) {
   return LocationsRepository(Supabase.instance.client);
 }
 
+class MapLocationResult {
+  const MapLocationResult({required this.items, required this.totalCount});
+  final List<LocationModel> items;
+  final int totalCount;
+}
+
 final viewportLocationsProvider = FutureProvider.autoDispose
-    .family<List<LocationModel>, MapViewportQuery>((ref, query) async {
+    .family<MapLocationResult, MapViewportQuery>((ref, query) async {
   return ref.watch(locationsRepositoryProvider).fetchLocationsInBounds(query);
+});
+
+final filterCountProvider = FutureProvider.autoDispose
+    .family<int, MapViewportQuery>((ref, query) async {
+  final result = await ref
+      .watch(locationsRepositoryProvider)
+      .fetchLocationsInBounds(query, limit: 1);
+  return result.totalCount;
 });
 
 typedef NearbyLocationQuery = ({
@@ -301,6 +377,13 @@ final nearbyLocationsProvider = FutureProvider.autoDispose
 final savedLocationsProvider = FutureProvider.autoDispose
     .family<List<LocationModel>, Set<String>>((ref, ids) {
   return ref.watch(locationsRepositoryProvider).fetchLocationsByIds(ids);
+});
+
+final locationDetailsProvider = FutureProvider.autoDispose
+    .family<LocationDetailsData, String>((ref, locationId) {
+  return ref
+      .watch(locationsRepositoryProvider)
+      .fetchLocationDetails(locationId);
 });
 
 @riverpod

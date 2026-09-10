@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -17,6 +16,7 @@ import '../../social/providers/public_profile_provider.dart';
 import '../../check_in/data/supabase_check_in_repository.dart';
 import '../domain/location_model.dart';
 import '../domain/location_query.dart';
+import '../domain/location_categories.dart';
 import '../domain/comment_model.dart';
 import '../domain/route.dart';
 import '../providers/comments_provider.dart';
@@ -26,8 +26,13 @@ import '../providers/map_filter_provider.dart';
 import '../providers/network_provider.dart';
 import '../providers/route_provider.dart';
 import 'clustered_location_map.dart';
+import 'map_reference_icons.dart';
+import 'location_card.dart';
 import 'route_details_screen.dart';
+import 'route_creation_screen.dart';
 import 'review_screen.dart';
+import 'map_filters_sheet.dart';
+import 'map_categories_sheet.dart';
 import '../../navigation/presentation/scalable_locations_screen.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
@@ -40,6 +45,52 @@ class MapScreen extends ConsumerStatefulWidget {
 class _MapScreenState extends ConsumerState<MapScreen> {
   MapViewportBounds? _viewport;
   List<LocationModel> _lastLocations = const [];
+  double? _lastUserLatitude;
+  double? _lastUserLongitude;
+
+  Future<void> _handleMapLongPress(
+      BuildContext context, WidgetRef ref, LatLng point) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('Що створити?', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.add_location_alt_outlined),
+              title: const Text('Створити локацію'),
+              onTap: () => Navigator.pop(context, 'location'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.route_outlined),
+              title: const Text('Створити маршрут'),
+              onTap: () => Navigator.pop(context, 'route'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Скасувати'),
+            ),
+          ]),
+        ),
+      ),
+    );
+    if (!context.mounted) return;
+    if (action == 'location') {
+      await _addLocation(context, ref, point);
+    } else if (action == 'route') {
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => RouteCreationScreen(
+          firstWaypoint: RoutePoint(
+            latitude: point.latitude,
+            longitude: point.longitude,
+          ),
+        ),
+      ));
+    }
+  }
 
   @override
   void initState() {
@@ -58,98 +109,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   void _showMapFilters(BuildContext context, WidgetRef ref) {
-    var selected = ref.read(mapFilterProvider);
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-            child: Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.viewInsetsOf(context).bottom,
-              ),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Row(children: [
-                  Expanded(
-                      child: Text('Фільтри',
-                          style: Theme.of(context).textTheme.headlineSmall)),
-                  IconButton(
-                    tooltip: 'Закрити',
-                    onPressed: () => Navigator.pop(sheetContext),
-                    icon: const Icon(Icons.close),
-                  ),
-                ]),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Категорії',
-                      style: Theme.of(context).textTheme.titleMedium),
-                ),
-                const SizedBox(height: 10),
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount:
-                      MediaQuery.sizeOf(context).width < 350 ? 3 : 4,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  childAspectRatio: .95,
-                  children: _CategoryFilterBar._labels.entries.map((entry) {
-                    final active = selected == entry.key;
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () => setSheetState(() => selected = entry.key),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: active
-                              ? const Color(0xFFD4A017)
-                              : const Color(0xFF14231D),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(
-                              color: active
-                                  ? const Color(0xFFD4A017)
-                                  : Colors.white10),
-                        ),
-                        padding: const EdgeInsets.all(8),
-                        child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(_CategoryFilterBar._icons[entry.key],
-                                  color: active ? Colors.black : Colors.white),
-                              const SizedBox(height: 6),
-                              Text(entry.value,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                      color:
-                                          active ? Colors.black : Colors.white,
-                                      fontSize: 11)),
-                            ]),
-                      ),
-                    );
-                  }).toList(growable: false),
-                ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () {
-                      ref.read(mapFilterProvider.notifier).select(selected);
-                      Navigator.pop(sheetContext);
-                    },
-                    child: const Text('Показати локації'),
-                  ),
-                ),
-              ]),
-            ),
-          ),
-        ),
+    final bounds = _viewport ??
+        (_lastUserLatitude == null
+            ? null
+            : MapViewportBounds(
+                minLatitude: _lastUserLatitude! - .1,
+                minLongitude: _lastUserLongitude! - .1,
+                maxLatitude: _lastUserLatitude! + .1,
+                maxLongitude: _lastUserLongitude! + .1,
+              ));
+    final effectiveBounds = bounds ??
+        const MapViewportBounds(
+          minLatitude: 50.35,
+          minLongitude: 30.42,
+          maxLatitude: 50.55,
+          maxLongitude: 30.62,
+        );
+    final filters = ref.read(mapFilterProvider);
+    ref.read(mapFilterProvider.notifier).updatePending(filters.applied);
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => MapFiltersSheet(
+        bounds: effectiveBounds,
+        userLatitude: _lastUserLatitude,
+        userLongitude: _lastUserLongitude,
       ),
-    );
+    ));
   }
 
   Future<void> _addLocation(
@@ -191,7 +176,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Не вдалося зберегти локацію: $error'),
+            content:
+                const Text('Не вдалося зберегти локацію. Спробуйте ще раз.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -208,11 +194,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (sheetContext) => LocationDetailsContent(
+      builder: (sheetContext) => MapLocationPreview(
         location: location,
         onBuildRoute: () {
           Navigator.of(sheetContext).pop();
           _buildRoute(context, ref, location);
+        },
+        onOpenDetails: () {
+          Navigator.of(sheetContext).pop();
+          Navigator.of(context).push(MaterialPageRoute<void>(
+            builder: (_) => LocationDetailsScreen(location: location),
+          ));
         },
       ),
     );
@@ -244,7 +236,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не вдалося отримати геопозицію: $error')),
+          const SnackBar(content: Text('Не вдалося отримати геопозицію.')),
         );
       }
     }
@@ -258,44 +250,28 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Travel Map'),
+        toolbarHeight: 48,
+        titleSpacing: 12,
+        title: const Text(
+          'Travel Map',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+        ),
+        actionsIconTheme: const IconThemeData(size: 18),
         actions: [
           const _NotificationsButton(),
           IconButton(
-            tooltip: 'Пошук',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-              builder: (_) => const ScalableLocationsScreen(
-                mode: ScalableLocationListMode.discover,
-              ),
-            )),
-            icon: const Icon(Icons.search),
-          ),
-          IconButton(
             tooltip: 'Фільтри',
             onPressed: () => _showMapFilters(context, ref),
-            icon: const Icon(Icons.tune),
+            style: _mapAppBarActionStyle,
+            icon:
+                const Icon(Icons.filter_alt_outlined, color: Color(0xFFD4A017)),
           ),
-          /*
-          IconButton(
-            tooltip: 'Друзі',
-            onPressed: () => ref.invalidate(viewportLocationsProvider),
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
-            tooltip: 'Профіль',
-            onPressed: () => ref.invalidate(viewportLocationsProvider),
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
-            tooltip: 'Оновити локації',
-            onPressed: () => ref.invalidate(viewportLocationsProvider),
-            icon: const Icon(Icons.refresh),
-          ),
-          */
         ],
       ),
       body: position.when(
         data: (currentPosition) {
+          _lastUserLatitude = currentPosition.latitude;
+          _lastUserLongitude = currentPosition.longitude;
           final bounds = _viewport ??
               MapViewportBounds(
                 minLatitude: currentPosition.latitude - 0.1,
@@ -303,144 +279,181 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 maxLatitude: currentPosition.latitude + 0.1,
                 maxLongitude: currentPosition.longitude + 0.1,
               );
-          final category = ref.watch(mapFilterProvider);
+          final filters = ref.watch(mapFilterProvider).applied;
           final query = MapViewportQuery(
             bounds: bounds,
-            category: category == 'all' ? null : category,
+            category: filters.category == 'all' ? null : filters.category,
+            userLatitude: currentPosition.latitude,
+            userLongitude: currentPosition.longitude,
+            maximumDistanceMeters: filters.maximumDistanceMeters,
+            minimumRating: filters.minimumRating,
+            openNow: filters.openNow,
+            familyOnly: filters.familyOnly,
+            sort: filters.rpcSort,
           );
           final locations = ref.watch(viewportLocationsProvider(query));
-          return locations.when(
-            skipLoadingOnRefresh: true,
-            skipLoadingOnReload: true,
-            skipError: true,
-            data: (items) {
-              _lastLocations = items;
-              assert(() {
-                debugPrint(
-                    '[MAP_DEBUG] rows=${items.length} mapped=${items.length} '
-                    'bbox=${bounds.minLatitude},${bounds.minLongitude},'
-                    '${bounds.maxLatitude},${bounds.maxLongitude} '
-                    'category=${query.category ?? "NULL"} markers=${items.length}');
-                return true;
-              }());
-              return Stack(
-                children: [
-                  ClusteredLocationMap(
-                    initialTarget: LatLng(
-                      currentPosition.latitude,
-                      currentPosition.longitude,
-                    ),
-                    locations: items,
-                    polylines: route.hasRoute
-                        ? {
-                            Polyline(
-                              polylineId: const PolylineId('active_route'),
-                              points: route.points
-                                  .map((point) => LatLng(
-                                        point.latitude,
-                                        point.longitude,
-                                      ))
-                                  .toList(growable: false),
-                              color: Theme.of(context).colorScheme.primary,
-                              width: 6,
-                              startCap: Cap.roundCap,
-                              endCap: Cap.roundCap,
-                            ),
-                          }
-                        : const <Polyline>{},
-                    onLocationTap: (location) =>
-                        _showLocationDetails(context, ref, location),
-                    onLongPress: (point) => _addLocation(context, ref, point),
-                    onViewportChanged: (visible) {
-                      final next = MapViewportBounds(
-                        minLatitude: visible.southwest.latitude,
-                        minLongitude: visible.southwest.longitude,
-                        maxLatitude: visible.northeast.latitude,
-                        maxLongitude: visible.northeast.longitude,
-                      );
-                      if (_viewport == null ||
-                          next.materiallyDiffersFrom(_viewport!)) {
-                        setState(() => _viewport = next);
+          final freshLocations = locations.asData?.value.items;
+          if (freshLocations != null) _lastLocations = freshLocations;
+          final visibleLocations = freshLocations ?? _lastLocations;
+          assert(() {
+            if (freshLocations != null) {
+              debugPrint('[MAP_DEBUG] rows=${freshLocations.length} '
+                  'bbox=${bounds.minLatitude},${bounds.minLongitude},'
+                  '${bounds.maxLatitude},${bounds.maxLongitude} '
+                  'category=${query.category ?? "NULL"}');
+            }
+            return true;
+          }());
+          return Stack(
+            children: [
+              ClusteredLocationMap(
+                key: const Key('stable_viewport_map'),
+                initialTarget: LatLng(
+                  currentPosition.latitude,
+                  currentPosition.longitude,
+                ),
+                userPosition: LatLng(
+                  currentPosition.latitude,
+                  currentPosition.longitude,
+                ),
+                locations: visibleLocations,
+                polylines: route.hasRoute
+                    ? {
+                        Polyline(
+                          polylineId: const PolylineId('active_route'),
+                          points: route.points
+                              .map((point) => LatLng(
+                                    point.latitude,
+                                    point.longitude,
+                                  ))
+                              .toList(growable: false),
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 6,
+                          startCap: Cap.roundCap,
+                          endCap: Cap.roundCap,
+                        ),
                       }
-                    },
+                    : const <Polyline>{},
+                onLocationTap: (location) =>
+                    _showLocationDetails(context, ref, location),
+                onLongPress: (point) =>
+                    _handleMapLongPress(context, ref, point),
+                onViewportChanged: (visible) {
+                  final next = MapViewportBounds(
+                    minLatitude: visible.southwest.latitude,
+                    minLongitude: visible.southwest.longitude,
+                    maxLatitude: visible.northeast.latitude,
+                    maxLongitude: visible.northeast.longitude,
+                  );
+                  if (_viewport == null ||
+                      next.materiallyDiffersFrom(_viewport!)) {
+                    setState(() => _viewport = next);
+                  }
+                },
+                beforeLocationToolbarAction: MapToolbarButton(
+                  tooltip: 'Випадкова локація',
+                  icon: Icons.casino_outlined,
+                  artwork: const MapReferenceIcon(MapReferenceGlyph.dice,
+                      size: 20, color: Color(0xFFD4A017)),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                        builder: (_) => const ScalableLocationsScreen(
+                            mode: ScalableLocationListMode.adventure)),
                   ),
-                  if (route.status != RouteStatus.idle)
-                    Positioned(
-                      left: 16,
-                      right: 16,
-                      bottom: 24,
-                      child: _RouteCard(route: route),
-                    ),
+                ),
+                additionalToolbarActions: _MapQuickActions(
+                  onAdd: () => _addLocation(
+                    context,
+                    ref,
+                    LatLng(currentPosition.latitude, currentPosition.longitude),
+                  ),
+                ),
+                overlays: [
                   const Positioned(
-                    top: 12,
+                    top: 0,
                     left: 0,
                     right: 0,
                     child: _CategoryFilterBar(),
                   ),
-                  Positioned(
-                    top: 142,
-                    right: 10,
-                    child: _MapQuickActions(
-                      onAdd: () => _addLocation(
-                          context,
-                          ref,
-                          LatLng(currentPosition.latitude,
-                              currentPosition.longitude)),
-                    ),
-                  ),
-                  if (!isOnline)
-                    const Positioned(
-                      top: 64,
-                      left: 16,
-                      right: 16,
-                      child: _OfflineBanner(),
-                    ),
                 ],
-              );
-            },
-            loading: () => _lastLocations.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : Stack(
-                    children: [
-                      ClusteredLocationMap(
-                        initialTarget: LatLng(currentPosition.latitude,
-                            currentPosition.longitude),
-                        locations: _lastLocations,
-                        polylines: route.hasRoute
-                            ? {
-                                Polyline(
-                                  polylineId: const PolylineId('active_route'),
-                                  points: route.points
-                                      .map((p) =>
-                                          LatLng(p.latitude, p.longitude))
-                                      .toList(growable: false),
-                                ),
-                              }
-                            : const <Polyline>{},
-                        onLocationTap: (location) =>
-                            _showLocationDetails(context, ref, location),
-                        onLongPress: (point) =>
-                            _addLocation(context, ref, point),
-                        onViewportChanged: (_) {},
-                      ),
-                      const Positioned(
-                        top: 12,
-                        left: 0,
-                        right: 0,
-                        child: _CategoryFilterBar(),
-                      ),
-                    ],
+              ),
+              if (route.status != RouteStatus.idle)
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 24,
+                  child: _RouteCard(route: route),
+                ),
+              if (locations.isLoading && visibleLocations.isEmpty)
+                const Positioned(
+                  top: 56,
+                  left: 16,
+                  right: 16,
+                  child: LinearProgressIndicator(minHeight: 2),
+                ),
+              if (locations.hasError && visibleLocations.isEmpty)
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 16,
+                  child: _InlineMapError(
+                    onRetry: () =>
+                        ref.invalidate(viewportLocationsProvider(query)),
                   ),
-            error: (error, stackTrace) => _ErrorView(
-              message: 'Не вдалося завантажити локації: $error',
-              onRetry: () => ref.invalidate(viewportLocationsProvider(query)),
-            ),
+                ),
+              if (!isOnline)
+                const Positioned(
+                  top: 64,
+                  left: 16,
+                  right: 16,
+                  child: _OfflineBanner(),
+                ),
+            ],
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) => _ErrorView(
-          message: 'Помилка геолокації: $error',
-          onRetry: () => ref.invalidate(currentPositionProvider),
+        loading: () => ClusteredLocationMap(
+          initialTarget: const LatLng(50.4501, 30.5234),
+          userPosition: null,
+          locations: const [],
+          polylines: const {},
+          onLocationTap: (_) {},
+          onLongPress: (point) => _handleMapLongPress(context, ref, point),
+          onViewportChanged: (_) {},
+        ),
+        error: (error, stackTrace) => Stack(
+          children: [
+            ClusteredLocationMap(
+              initialTarget: const LatLng(50.4501, 30.5234),
+              userPosition: null,
+              locations: const [],
+              polylines: const {},
+              onLocationTap: (_) {},
+              onLongPress: (point) => _handleMapLongPress(context, ref, point),
+              onViewportChanged: (_) {},
+            ),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: Material(
+                borderRadius: BorderRadius.circular(12),
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                child: ListTile(
+                  leading: const Icon(Icons.location_off_outlined),
+                  title: const Text('Геолокація недоступна'),
+                  subtitle: const Text(
+                    'Перевірте дозвіл або служби геолокації.',
+                    maxLines: 2,
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Спробувати ще раз',
+                    onPressed: () => ref.invalidate(currentPositionProvider),
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -454,6 +467,7 @@ class _NotificationsButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final unreadCount = ref.watch(unreadNotificationsCountProvider);
     return IconButton(
+      style: _mapAppBarActionStyle,
       tooltip: 'Сповіщення',
       onPressed: () => Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -479,47 +493,104 @@ class _MapQuickActions extends StatelessWidget {
         children: [
           _action(
               context,
-              'Випадкова локація',
-              Icons.casino_outlined,
-              () => Navigator.of(context).push(MaterialPageRoute<void>(
-                  builder: (_) => const ScalableLocationsScreen(
-                      mode: ScalableLocationListMode.adventure)))),
-          _action(
-              context,
-              'Куди сьогодні?',
-              Icons.explore_outlined,
-              () => Navigator.of(context).push(MaterialPageRoute<void>(
-                  builder: (_) => const ScalableLocationsScreen(
-                      mode: ScalableLocationListMode.adventure)))),
-          _action(
-              context,
               'Поруч',
-              Icons.radar,
+              Icons.near_me_outlined,
               () => Navigator.of(context).push(MaterialPageRoute<void>(
                   builder: (_) => const ScalableLocationsScreen(
                       mode: ScalableLocationListMode.nearby)))),
-          _action(
-              context, 'Додати місце', Icons.add_location_alt_outlined, onAdd),
+          _action(context, 'Додати місце', Icons.add, onAdd),
         ],
       );
 
   Widget _action(BuildContext context, String label, IconData icon,
           VoidCallback onPressed) =>
-      Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Tooltip(
-          message: label,
-          child: Material(
-            color: const Color(0xFF142416),
-            shape: const CircleBorder(),
-            child: IconButton(
-              onPressed: onPressed,
-              icon: Icon(icon, color: Colors.amber),
-              tooltip: label,
-            ),
-          ),
-        ),
+      MapToolbarButton(
+        tooltip: label,
+        icon: icon,
+        onPressed: onPressed,
+        highlighted: icon == Icons.add,
       );
+}
+
+class MapLocationPreview extends StatelessWidget {
+  const MapLocationPreview({
+    required this.location,
+    required this.onBuildRoute,
+    required this.onOpenDetails,
+    super.key,
+  });
+
+  final LocationModel location;
+  final VoidCallback onBuildRoute;
+  final VoidCallback onOpenDetails;
+
+  @override
+  Widget build(BuildContext context) {
+    final category = locationCategoryPresentation(location.category);
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD4A017).withValues(alpha: .14),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(category.icon, color: const Color(0xFFD4A017)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(location.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge),
+                    Text('${category.emoji} ${category.label}',
+                        style:
+                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: const Color(0xFFD4A017),
+                                )),
+                  ],
+                ),
+              ),
+            ]),
+            if (location.description?.isNotEmpty == true) ...[
+              const SizedBox(height: 12),
+              Text(location.description!,
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
+            ],
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  key: const Key('preview_open_details'),
+                  onPressed: onOpenDetails,
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                  label: const Text('Детальніше'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('preview_route'),
+                  onPressed: onBuildRoute,
+                  icon: const Icon(Icons.directions_outlined),
+                  label: const Text('Маршрут'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class LocationDetailsScreen extends ConsumerWidget {
@@ -549,21 +620,44 @@ class LocationDetailsScreen extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не вдалося побудувати маршрут: $error')),
+          const SnackBar(content: Text('Не вдалося побудувати маршрут.')),
         );
       }
     }
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-        appBar: AppBar(title: Text(location.title)),
-        body: LocationDetailsContent(
-          location: location,
-          onBuildRoute: () => _buildRoute(context, ref),
-          showRouteStatus: true,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final savedLocations = ref.watch(savedPublicLocationsProvider);
+    final isSaved =
+        (savedLocations.value ?? const <String>{}).contains(location.id);
+    return Scaffold(
+      appBar: AppBar(
+        toolbarHeight: 48,
+        title: const Text(
+          'Локація',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
-      );
+        actions: [
+          IconButton(
+            key: const Key('details_saved_action'),
+            tooltip: isSaved ? 'Прибрати зі збережених' : 'Зберегти локацію',
+            onPressed: savedLocations.hasValue
+                ? () => ref
+                    .read(savedPublicLocationsProvider.notifier)
+                    .toggle(location.id)
+                : null,
+            icon: Icon(isSaved ? Icons.bookmark : Icons.bookmark_border),
+          ),
+        ],
+      ),
+      body: LocationDetailsContent(
+        location: location,
+        onBuildRoute: () => _buildRoute(context, ref),
+        showRouteStatus: true,
+      ),
+    );
+  }
 }
 
 class LocationDetailsContent extends ConsumerStatefulWidget {
@@ -584,46 +678,8 @@ class LocationDetailsContent extends ConsumerStatefulWidget {
 
 class _LocationDetailsContentState
     extends ConsumerState<LocationDetailsContent> {
-  final _controller = TextEditingController();
-  int? _rating;
-  bool _submitting = false;
   bool _checkingIn = false;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (!ref.read(isOnlineProvider)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Для цієї дії потрібен інтернет')),
-      );
-      return;
-    }
-    final text = _controller.text.trim();
-    if (text.isEmpty || _submitting) return;
-    setState(() => _submitting = true);
-    try {
-      await ref.read(commentsControllerProvider).addComment(
-            locationId: widget.location.id,
-            text: text,
-            rating: _rating,
-          );
-      if (!mounted) return;
-      _controller.clear();
-      setState(() => _rating = null);
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не вдалося додати коментар: $error')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
+  bool _descriptionExpanded = false;
 
   Future<void> _checkIn() async {
     if (_checkingIn || !ref.read(isOnlineProvider)) return;
@@ -646,7 +702,7 @@ class _LocationDetailsContentState
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не вдалося зробити check-in: $error')),
+          const SnackBar(content: Text('Не вдалося зробити check-in.')),
         );
       }
     } finally {
@@ -669,7 +725,7 @@ class _LocationDetailsContentState
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не вдалося видалити коментар: $error')),
+          const SnackBar(content: Text('Не вдалося видалити коментар.')),
         );
       }
     }
@@ -693,7 +749,7 @@ class _LocationDetailsContentState
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не вдалося оновити локацію: $error')),
+          const SnackBar(content: Text('Не вдалося оновити локацію.')),
         );
       }
     }
@@ -727,7 +783,7 @@ class _LocationDetailsContentState
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не вдалося видалити локацію: $error')),
+          const SnackBar(content: Text('Не вдалося видалити локацію.')),
         );
       }
     }
@@ -735,50 +791,263 @@ class _LocationDetailsContentState
 
   @override
   Widget build(BuildContext context) {
+    final details = ref.watch(locationDetailsProvider(widget.location.id));
+    final location = details.value?.location ?? widget.location;
+    final tags = details.value?.tags ?? const <String>[];
+    final photos = details.value?.photoUrls ?? const <String>[];
+    final comments = ref.watch(commentsProvider(location.id));
+    final author = ref.watch(publicProfileProvider(location.userId));
+    final position = ref.watch(currentPositionProvider).value;
+    final distance = position == null
+        ? null
+        : Geolocator.distanceBetween(position.latitude, position.longitude,
+            location.latitude, location.longitude);
+    final heroUrl = photos.isNotEmpty ? photos.first : location.imageUrl;
+    final amenities = location.presentedAmenities;
+
+    final mediaQuery = MediaQuery.of(context);
+    final detailsScale = mediaQuery.textScaler.scale(1).clamp(1.0, 1.15);
+    return MediaQuery(
+      data: mediaQuery.copyWith(
+        textScaler: TextScaler.linear(detailsScale.toDouble()),
+      ),
+      child: Material(
+        color: const Color(0xFF101A16),
+        child: CustomScrollView(
+          key: const Key('location_details_scroll'),
+          slivers: [
+            SliverToBoxAdapter(
+              child: SizedBox(
+                key: const Key('location_details_hero'),
+                height: 120,
+                child: Stack(fit: StackFit.expand, children: [
+                  if (heroUrl?.trim().isNotEmpty == true)
+                    Image.network(heroUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            LocationImage(location: location))
+                  else
+                    LocationImage(
+                        location: location, borderRadius: BorderRadius.zero),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Color(0xE6101A16)],
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              sliver: SliverList.list(children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _LocationCategoryBadge(category: location.category),
+                ),
+                const SizedBox(height: 6),
+                Text(location.title,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        height: 1.08,
+                        fontWeight: FontWeight.w800)),
+                const SizedBox(height: 7),
+                _DetailsFactsRow(location: location, distanceMeters: distance),
+                if (tags.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: tags
+                          .map((tag) => Chip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text(tag)))
+                          .toList(growable: false)),
+                ],
+                const SizedBox(height: 14),
+                Row(children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      key: const Key('details_route_action'),
+                      onPressed: widget.onBuildRoute,
+                      icon: const Icon(Icons.directions),
+                      label: const Text('Маршрут'),
+                      style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFD6A928),
+                          foregroundColor: const Color(0xFF142019),
+                          minimumSize: const Size.fromHeight(42)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  IconButton.filledTonal(
+                      tooltip: 'Зробити check-in',
+                      onPressed: _checkingIn ? null : _checkIn,
+                      icon: const Icon(Icons.how_to_reg_outlined)),
+                ]),
+                if (location.description?.trim().isNotEmpty == true) ...[
+                  const SizedBox(height: 20),
+                  const _DetailsHeading('Про локацію'),
+                  const SizedBox(height: 6),
+                  Text(location.description!.trim(),
+                      maxLines: _descriptionExpanded ? null : 3,
+                      overflow: _descriptionExpanded
+                          ? TextOverflow.visible
+                          : TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          color: Color(0xFFD6DED9), fontSize: 14, height: 1.4)),
+                  TextButton(
+                    onPressed: () => setState(
+                        () => _descriptionExpanded = !_descriptionExpanded),
+                    child:
+                        Text(_descriptionExpanded ? 'Згорнути' : 'Докладніше'),
+                  ),
+                ],
+                if (amenities != null) ...[
+                  const SizedBox(height: 26),
+                  const _DetailsHeading('Зручності'),
+                  const SizedBox(height: 12),
+                  if (amenities.isEmpty)
+                    const Text('Зручності не зазначені',
+                        style: TextStyle(color: Color(0xFF9EAAA4)))
+                  else
+                    _AmenitiesGrid(keys: amenities),
+                ],
+                if (location.openingHours != null) ...[
+                  const SizedBox(height: 26),
+                  const _DetailsHeading('Години роботи'),
+                  const SizedBox(height: 10),
+                  _OpeningHours(schedule: location.openingHours!),
+                ],
+                if (location.address != null) ...[
+                  const SizedBox(height: 26),
+                  const _DetailsHeading('Адреса'),
+                  const SizedBox(height: 9),
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Icon(Icons.location_on_outlined,
+                        color: Color(0xFFD6A928)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: Text(location.address!,
+                            style: const TextStyle(color: Colors.white))),
+                  ]),
+                ],
+                const SizedBox(height: 20),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: SizedBox(
+                    key: const Key('details_mini_map'),
+                    height: 170,
+                    child: GoogleMap(
+                      initialCameraPosition: CameraPosition(
+                          target: LatLng(location.latitude, location.longitude),
+                          zoom: 15),
+                      liteModeEnabled: true,
+                      zoomControlsEnabled: false,
+                      mapToolbarEnabled: false,
+                      myLocationButtonEnabled: false,
+                      markers: {
+                        Marker(
+                            markerId: MarkerId(location.id),
+                            position:
+                                LatLng(location.latitude, location.longitude)),
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                author.when(
+                  data: (profile) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundImage: profile.avatarUrl?.isNotEmpty == true
+                          ? NetworkImage(profile.avatarUrl!)
+                          : null,
+                      child: profile.avatarUrl?.isNotEmpty == true
+                          ? null
+                          : const Icon(Icons.person),
+                    ),
+                    title: Text(profile.name,
+                        style: const TextStyle(color: Colors.white)),
+                    subtitle: const Text('Автор локації'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push('/users/${location.userId}'),
+                  ),
+                  loading: () => const LinearProgressIndicator(),
+                  error: (_, __) => const SizedBox.shrink(),
+                ),
+                const SizedBox(height: 18),
+                comments.when(
+                  data: (items) =>
+                      _CommentsContent(comments: items, onDelete: _delete),
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (_, __) => const Text(
+                      'Не вдалося завантажити відгуки.',
+                      style: TextStyle(color: Color(0xFF9EAAA4))),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.tonalIcon(
+                  key: const Key('details_review_action'),
+                  onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => ReviewScreen(location: location))),
+                  icon: const Icon(Icons.rate_review_outlined),
+                  label: const Text('Написати відгук'),
+                ),
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Kept temporarily to preserve owner/edit behavior while the reference
+  // details composition above replaces the old visual layout.
+  // ignore: unused_element
+  Widget _buildLegacy(BuildContext context) {
     final comments = ref.watch(commentsProvider(widget.location.id));
     final isOnline = ref.watch(isOnlineProvider);
     final author = ref.watch(publicProfileProvider(widget.location.userId));
-    final savedLocations = ref.watch(savedPublicLocationsProvider);
     final route = ref.watch(routeProvider);
     return SafeArea(
-      child: FractionallySizedBox(
-        heightFactor: 0.9,
-        child: SingleChildScrollView(
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          key: const Key('location_details_scroll'),
           padding: EdgeInsets.fromLTRB(
-            20,
-            0,
-            20,
-            24 + MediaQuery.viewInsetsOf(context).bottom,
+            12,
+            8,
+            12,
+            16 + MediaQuery.viewInsetsOf(context).bottom,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (widget.location.imageUrl != null) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: CachedNetworkImage(
-                    imageUrl: widget.location.imageUrl!,
-                    width: double.infinity,
-                    height: 220,
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => const SizedBox(
-                      height: 220,
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                    errorWidget: (_, __, ___) => const SizedBox(
-                      height: 220,
-                      child: Center(child: Icon(Icons.broken_image_outlined)),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
+              SizedBox(
+                key: const Key('location_details_hero'),
+                height: constraints.maxWidth < 350 ? 148 : 160,
+                width: double.infinity,
+                child: LocationImage(location: widget.location),
+              ),
+              const SizedBox(height: 10),
+              _LocationCategoryBadge(category: widget.location.category),
+              const SizedBox(height: 6),
               Row(
                 children: [
                   Expanded(
                     child: Text(
                       widget.location.title,
-                      style: Theme.of(context).textTheme.headlineSmall,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w600,
+                            height: 1.12,
+                          ),
                     ),
                   ),
                   if (widget.location.userId ==
@@ -796,14 +1065,27 @@ class _LocationDetailsContentState
                 ],
               ),
               if (widget.location.description?.isNotEmpty ?? false) ...[
-                const SizedBox(height: 8),
-                Text(widget.location.description!),
+                const SizedBox(height: 12),
+                Text('Про локацію',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        )),
+                const SizedBox(height: 4),
+                Text(widget.location.description!,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(fontSize: 13, height: 1.35)),
               ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               author.when(
                 data: (profile) => ListTile(
                   contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  visualDensity: const VisualDensity(vertical: -3),
                   leading: CircleAvatar(
+                    radius: 17,
                     backgroundImage: profile.avatarUrl?.isNotEmpty == true
                         ? NetworkImage(profile.avatarUrl!)
                         : null,
@@ -828,29 +1110,7 @@ class _LocationDetailsContentState
                 ),
               ),
               SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: savedLocations.hasValue
-                      ? () => ref
-                          .read(savedPublicLocationsProvider.notifier)
-                          .toggle(widget.location.id)
-                      : null,
-                  icon: Icon(
-                    (savedLocations.value ?? const <String>{})
-                            .contains(widget.location.id)
-                        ? Icons.bookmark
-                        : Icons.bookmark_border,
-                  ),
-                  label: Text(
-                    (savedLocations.value ?? const <String>{})
-                            .contains(widget.location.id)
-                        ? 'Прибрати зі збережених'
-                        : 'Зберегти локацію',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
+                height: 44,
                 width: double.infinity,
                 child: FilledButton.icon(
                   onPressed: widget.onBuildRoute,
@@ -865,6 +1125,7 @@ class _LocationDetailsContentState
               ],
               const SizedBox(height: 8),
               SizedBox(
+                height: 44,
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   onPressed: _checkingIn || !isOnline ? null : _checkIn,
@@ -877,15 +1138,15 @@ class _LocationDetailsContentState
                   label: const Text('Зробити check-in'),
                 ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 18),
               comments.when(
                 data: (items) =>
                     _CommentsContent(comments: items, onDelete: _delete),
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (error, _) => Row(
                   children: [
-                    Expanded(
-                        child: Text('Не вдалося завантажити відгуки: $error')),
+                    const Expanded(
+                        child: Text('Не вдалося завантажити відгуки.')),
                     IconButton(
                       onPressed: () => ref.invalidate(
                         commentsProvider(widget.location.id),
@@ -897,6 +1158,7 @@ class _LocationDetailsContentState
               ),
               const SizedBox(height: 20),
               SizedBox(
+                height: 44,
                 width: double.infinity,
                 child: FilledButton.tonalIcon(
                   onPressed: !isOnline
@@ -907,56 +1169,10 @@ class _LocationDetailsContentState
                                 ReviewScreen(location: widget.location),
                           )),
                   icon: const Icon(Icons.rate_review_outlined),
-                  label: const Text('Написати відгук'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _controller,
-                minLines: 2,
-                maxLines: 4,
-                maxLength: 2000,
-                enabled: !_submitting,
-                decoration: const InputDecoration(
-                  labelText: 'Ваш коментар',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              Row(
-                children: [
-                  const Text('Оцінка: '),
-                  ...List.generate(5, (index) {
-                    final value = index + 1;
-                    return IconButton(
-                      visualDensity: VisualDensity.compact,
-                      tooltip: '$value з 5',
-                      onPressed: _submitting
-                          ? null
-                          : () => setState(
-                                () => _rating = _rating == value ? null : value,
-                              ),
-                      icon: Icon(
-                        value <= (_rating ?? 0)
-                            ? Icons.star
-                            : Icons.star_border,
-                        color: Colors.amber.shade700,
-                      ),
-                    );
-                  }),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _submitting || !isOnline ? null : _submit,
-                  icon: _submitting
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send),
-                  label: const Text('Опублікувати відгук'),
+                  label: const Text(
+                    'Написати відгук',
+                    style: TextStyle(fontSize: 13),
+                  ),
                 ),
               ),
             ],
@@ -965,6 +1181,154 @@ class _LocationDetailsContentState
       ),
     );
   }
+}
+
+class _LocationCategoryBadge extends StatelessWidget {
+  const _LocationCategoryBadge({required this.category});
+  final String category;
+
+  @override
+  Widget build(BuildContext context) {
+    final presentation = locationCategoryPresentation(category);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFD4A017).withValues(alpha: .14),
+        borderRadius: BorderRadius.circular(999),
+        border:
+            Border.all(color: const Color(0xFFD4A017).withValues(alpha: .35)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(presentation.icon, size: 14, color: const Color(0xFFD4A017)),
+        const SizedBox(width: 4),
+        Text(presentation.label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: const Color(0xFFD4A017),
+                  fontWeight: FontWeight.w700,
+                )),
+      ]),
+    );
+  }
+}
+
+class _DetailsHeading extends StatelessWidget {
+  const _DetailsHeading(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Text(text,
+      style: const TextStyle(
+          color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800));
+}
+
+class _DetailsFactsRow extends StatelessWidget {
+  const _DetailsFactsRow({required this.location, this.distanceMeters});
+  final LocationModel location;
+  final double? distanceMeters;
+
+  @override
+  Widget build(BuildContext context) {
+    final facts = <Widget>[];
+    if ((location.ratingsCount ?? 0) > 0 && location.rating != null) {
+      facts.add(_fact(Icons.star_rounded,
+          '${location.rating!.toStringAsFixed(1)} (${location.ratingsCount})'));
+    }
+    if (distanceMeters != null) {
+      facts.add(_fact(Icons.near_me_outlined,
+          '${LocationCard.formatDistance(distanceMeters!)} від вас'));
+    }
+    if (location.isFamilyFriendly != null) {
+      facts.add(_fact(Icons.family_restroom,
+          location.isFamilyFriendly! ? 'Для родини' : 'Не для дітей'));
+    }
+    return Wrap(spacing: 15, runSpacing: 8, children: facts);
+  }
+
+  Widget _fact(IconData icon, String label) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: const Color(0xFFD6A928), size: 18),
+          const SizedBox(width: 5),
+          Text(label, style: const TextStyle(color: Color(0xFFD6DED9))),
+        ],
+      );
+}
+
+class _AmenitiesGrid extends StatelessWidget {
+  const _AmenitiesGrid({required this.keys});
+  final List<String> keys;
+
+  static const values = <String, (IconData, String)>{
+    'parking': (Icons.local_parking, 'Паркінг'),
+    'wifi': (Icons.wifi, 'Wi-Fi'),
+    'toilet': (Icons.wc, 'Туалет'),
+    'accessibility': (Icons.accessible, 'Доступність'),
+    'pets': (Icons.pets, 'З тваринами'),
+    'food': (Icons.restaurant, 'Їжа'),
+  };
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: keys.where(values.containsKey).map((key) {
+          final value = values[key]!;
+          return Container(
+            width: 98,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A2A23),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFF30443B)),
+            ),
+            child: Column(children: [
+              Icon(value.$1, color: const Color(0xFFD6A928)),
+              const SizedBox(height: 6),
+              Text(value.$2,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 12)),
+            ]),
+          );
+        }).toList(growable: false),
+      );
+}
+
+class _OpeningHours extends StatelessWidget {
+  const _OpeningHours({required this.schedule});
+  final Map<String, dynamic> schedule;
+
+  static const labels = <String, String>{
+    'mon': 'Пн',
+    'tue': 'Вт',
+    'wed': 'Ср',
+    'thu': 'Чт',
+    'fri': 'Пт',
+    'sat': 'Сб',
+    'sun': 'Нд',
+  };
+
+  @override
+  Widget build(BuildContext context) => Column(
+        children: labels.entries.map((entry) {
+          final intervals = schedule[entry.key] as List? ?? const [];
+          final text = intervals.isEmpty
+              ? 'Зачинено'
+              : intervals.map((value) {
+                  final interval = value as Map;
+                  return '${interval['open']}–${interval['close']}';
+                }).join(', ');
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(children: [
+              SizedBox(
+                  width: 34,
+                  child: Text(entry.value,
+                      style: const TextStyle(color: Color(0xFF9EAAA4)))),
+              Text(text, style: const TextStyle(color: Colors.white)),
+            ]),
+          );
+        }).toList(growable: false),
+      );
 }
 
 class _OfflineBanner extends StatelessWidget {
@@ -992,6 +1356,28 @@ class _OfflineBanner extends StatelessWidget {
   }
 }
 
+class _InlineMapError extends StatelessWidget {
+  const _InlineMapError({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: const Color(0xEE14231D),
+        borderRadius: BorderRadius.circular(14),
+        child: ListTile(
+          dense: true,
+          leading: const Icon(Icons.cloud_off_outlined),
+          title: const Text('Не вдалося оновити локації'),
+          trailing: IconButton(
+            tooltip: 'Спробувати ще раз',
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh),
+          ),
+        ),
+      );
+}
+
 class _CommentsContent extends StatelessWidget {
   const _CommentsContent({required this.comments, required this.onDelete});
 
@@ -1011,7 +1397,13 @@ class _CommentsContent extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text('Відгуки', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Відгуки',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
             const Spacer(),
             if (average != null) ...[
               Icon(Icons.star, color: Colors.amber.shade700),
@@ -1020,9 +1412,12 @@ class _CommentsContent extends StatelessWidget {
             ],
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         if (comments.isEmpty)
-          const Text('Ще немає відгуків. Будьте першим!')
+          const Text(
+            'Ще немає відгуків. Будьте першим!',
+            style: TextStyle(fontSize: 13),
+          )
         else
           ...comments.map(
             (comment) => ListTile(
@@ -1132,17 +1527,18 @@ class _EditLocationDialogState extends State<_EditLocationDialog> {
             ),
             DropdownButtonFormField<String>(
               initialValue: _category,
+              isExpanded: true,
+              menuMaxHeight: 360,
               decoration: const InputDecoration(labelText: 'Категорія'),
-              items: const [
-                DropdownMenuItem(value: 'general', child: Text('Загальне')),
-                DropdownMenuItem(value: 'cafe', child: Text('Кафе')),
-                DropdownMenuItem(value: 'nature', child: Text('Природа')),
-                DropdownMenuItem(value: 'culture', child: Text('Культура')),
-                DropdownMenuItem(
-                  value: 'entertainment',
-                  child: Text('Розваги'),
-                ),
-              ],
+              items: editableLocationCategories
+                  .map((value) => DropdownMenuItem(
+                        value: value.key,
+                        child: Text(
+                          value.label.replaceAll('\n', ' '),
+                          softWrap: true,
+                        ),
+                      ))
+                  .toList(growable: false),
               onChanged: (value) => _category = value ?? 'general',
             ),
           ],
@@ -1173,49 +1569,177 @@ class _EditLocationDialogState extends State<_EditLocationDialog> {
   }
 }
 
+class MapFilterCategoryGrid extends StatelessWidget {
+  const MapFilterCategoryGrid({
+    required this.selected,
+    required this.onSelected,
+    super.key,
+  });
+
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) {
+          const spacing = 6.0;
+          final columns = constraints.maxWidth < 344 ? 3 : 4;
+          final textScale = MediaQuery.textScalerOf(context).scale(1);
+          final tileExtent = textScale > 1.35 ? 76.0 : 64.0;
+          return GridView.builder(
+            key: const Key('map_filter_category_grid'),
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: spacing,
+              crossAxisSpacing: spacing,
+              mainAxisExtent: tileExtent,
+            ),
+            itemCount: referenceLocationCategories.length,
+            itemBuilder: (context, index) {
+              final entry = referenceLocationCategories[index];
+              final active = selected == entry.key;
+              return InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => onSelected(entry.key),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: active
+                        ? const Color(0xFFD4A017)
+                        : const Color(0xFF14231D),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: active ? const Color(0xFFD4A017) : Colors.white10,
+                    ),
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 7),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        entry.icon,
+                        size: 23,
+                        color: active ? Colors.black : entry.referenceColor,
+                      ),
+                      const SizedBox(height: 3),
+                      Flexible(
+                        child: Text(
+                          entry.label,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: active ? Colors.black : Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            height: 1.05,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+}
+
 class _CategoryFilterBar extends ConsumerWidget {
   const _CategoryFilterBar();
 
-  static const _labels = <String, String>{
-    'all': 'Усі',
-    'cafe': 'Кафе',
-    'nature': 'Природа',
-    'culture': 'Культура',
-    'entertainment': 'Розваги',
-  };
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final selected = ref.watch(mapFilterProvider);
-    return SizedBox(
-      height: 48,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        children: _labels.entries.map((entry) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: ChoiceChip(
-              label: Icon(_icons[entry.key], size: 18),
-              tooltip: entry.value,
-              selected: selected == entry.key,
-              onSelected: (_) =>
-                  ref.read(mapFilterProvider.notifier).select(entry.key),
-            ),
-          );
-        }).toList(growable: false),
+    final selected = ref.watch(mapFilterProvider).applied.category;
+    return ColoredBox(
+      color: Colors.transparent,
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          color: const Color(0xFF09120F),
+          border: Border.all(color: const Color(0x33294037)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+          // Display order only; the canonical registry and filter state are shared.
+          children: [
+            'all',
+            'nature',
+            'culture',
+            'entertainment',
+            'active_outdoors',
+            'viewpoints',
+            'historic',
+            'cafe',
+            'events',
+            'romance',
+            'shopping',
+            'kids',
+          ].map((key) {
+            final entry = locationCategoryDefinition(key);
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Tooltip(
+                message: entry.label,
+                child: Semantics(
+                  button: true,
+                  selected: selected == entry.key,
+                  label: entry.label,
+                  child: Material(
+                    clipBehavior: Clip.antiAlias,
+                    color: selected == entry.key
+                        ? entry.referenceColor.withValues(alpha: .25)
+                        : const Color(0xFF0B1512),
+                    shape: CircleBorder(
+                      side: BorderSide(
+                        color: selected == entry.key
+                            ? entry.referenceColor.withValues(alpha: .7)
+                            : const Color(0xFF23332D),
+                      ),
+                    ),
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: entry.key == 'all'
+                          ? () => showMapCategoriesSheet(context: context)
+                          : () => ref
+                              .read(mapFilterProvider.notifier)
+                              .selectCategory(entry.key),
+                      child: SizedBox.square(
+                        dimension: 34,
+                        child: Center(
+                          child: MapCategoryArtwork(
+                            category: entry.key,
+                            icon: entry.icon,
+                            color: entry.referenceColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }).toList(growable: false),
+        ),
       ),
     );
   }
-
-  static const _icons = <String, IconData>{
-    'all': Icons.auto_awesome,
-    'cafe': Icons.local_cafe,
-    'nature': Icons.park,
-    'culture': Icons.museum,
-    'entertainment': Icons.theater_comedy,
-  };
 }
+
+final ButtonStyle _mapAppBarActionStyle = IconButton.styleFrom(
+  minimumSize: const Size.square(32),
+  maximumSize: const Size.square(32),
+  iconSize: 18,
+  padding: const EdgeInsets.all(6),
+  backgroundColor: Colors.transparent,
+  side: const BorderSide(color: Colors.white24),
+  shape: const CircleBorder(),
+);
 
 class _RouteCard extends ConsumerWidget {
   const _RouteCard({required this.route});
@@ -1354,7 +1878,7 @@ class _AddLocationDialogState extends State<_AddLocationDialog> {
       });
     } catch (error) {
       if (mounted) {
-        setState(() => _imageError = 'Не вдалося вибрати фото: $error');
+        setState(() => _imageError = 'Не вдалося вибрати фото.');
       }
     } finally {
       if (mounted) setState(() => _isPickingImage = false);
@@ -1411,17 +1935,28 @@ class _AddLocationDialogState extends State<_AddLocationDialog> {
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               initialValue: _category,
+              isExpanded: true,
+              menuMaxHeight: 360,
               decoration: const InputDecoration(labelText: 'Категорія'),
-              items: const [
-                DropdownMenuItem(value: 'general', child: Text('Загальне')),
-                DropdownMenuItem(value: 'cafe', child: Text('Кафе')),
-                DropdownMenuItem(value: 'nature', child: Text('Природа')),
-                DropdownMenuItem(value: 'culture', child: Text('Культура')),
-                DropdownMenuItem(
-                  value: 'entertainment',
-                  child: Text('Розваги'),
-                ),
-              ],
+              selectedItemBuilder: (context) => editableLocationCategories
+                  .map((value) => Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          value.label.replaceAll('\n', ' '),
+                          maxLines: 2,
+                          softWrap: true,
+                        ),
+                      ))
+                  .toList(growable: false),
+              items: editableLocationCategories
+                  .map((value) => DropdownMenuItem(
+                        value: value.key,
+                        child: Text(
+                          value.label.replaceAll('\n', ' '),
+                          softWrap: true,
+                        ),
+                      ))
+                  .toList(growable: false),
               onChanged: _isPickingImage
                   ? null
                   : (value) => setState(() => _category = value ?? 'general'),
@@ -1492,40 +2027,6 @@ class _AddLocationDialogState extends State<_AddLocationDialog> {
           child: const Text('Зберегти'),
         ),
       ],
-    );
-  }
-}
-
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
-
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.red),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Спробувати ще раз'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

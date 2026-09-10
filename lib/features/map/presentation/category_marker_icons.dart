@@ -3,21 +3,25 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../domain/location_categories.dart';
+
 abstract final class CategoryMarkerIcons {
   static final Map<String, BitmapDescriptor> _icons = {};
   static BitmapDescriptor? _userLocation;
 
   static Future<void> initialize() async {
     if (_icons.isNotEmpty) return;
-    final entries = <String, (Color, IconData)>{
-      'general': (const Color(0xFFD4A017), Icons.place),
-      'cafe': (const Color(0xFF268BD2), Icons.local_cafe),
-      'nature': (const Color(0xFF58A83B), Icons.park),
-      'culture': (const Color(0xFFE05A3F), Icons.museum),
-      'entertainment': (const Color(0xFF9C56C7), Icons.theater_comedy),
-    };
-    for (final entry in entries.entries) {
-      _icons[entry.key] = await _draw(entry.value.$1, entry.value.$2);
+    for (final entry in [
+      legacyGeneralCategory,
+      ...referenceLocationCategories.where((value) => value.key != 'all'),
+    ]) {
+      final color = switch (entry.key) {
+        'cafe' => const Color(0xFF438FAE),
+        'nature' => const Color(0xFF8BAF4E),
+        'historic' => const Color(0xFFDAA43D),
+        _ => entry.referenceColor,
+      };
+      _icons[entry.key] = await _draw(color, entry.icon);
     }
     _userLocation = await _drawUserLocation();
   }
@@ -55,7 +59,7 @@ abstract final class CategoryMarkerIcons {
         await recorder.endRecording().toImage(size.toInt(), size.toInt());
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
     return BitmapDescriptor.bytes(bytes!.buffer.asUint8List(),
-        width: 30, height: 30);
+        width: 25, height: 25);
   }
 
   static Future<BitmapDescriptor> _drawUserLocation() async {

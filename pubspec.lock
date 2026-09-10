@@ -529,12 +529,11 @@ packages:
     source: hosted
     version: "2.18.0"
   google_maps_flutter_android:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
-      name: google_maps_flutter_android
-      sha256: a404c67d460f64b8bdc48aa5e39c81aa13505552d8783ae68f9aeef074913286
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/google_maps_flutter_android"
+      relative: true
+    source: path
     version: "2.19.12"
   google_maps_flutter_ios:
     dependency: transitive

@@ -7,6 +7,6 @@ void main() {
     expect(locationCategoryLabel('nature'), 'Природа');
     expect(locationCategoryLabel('culture'), 'Культура');
     expect(locationCategoryLabel('entertainment'), 'Розваги');
-    expect(locationCategoryLabel('general'), 'Локація');
+    expect(locationCategoryLabel('general'), 'Загальне');
   });
 }

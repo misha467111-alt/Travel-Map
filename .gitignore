@@ -52,3 +52,6 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Temporary current QA screenshots (qa/master reference images are tracked)
+qa/current/*.png

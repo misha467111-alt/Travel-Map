@@ -30,7 +30,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не вдалося змінити підписку: $error')),
+          const SnackBar(
+              content: Text('Не вдалося змінити підписку. Спробуйте ще раз.')),
         );
       }
     } finally {
@@ -60,7 +61,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Не вдалося завантажити профіль: $error'),
+                const Text('Не вдалося завантажити профіль.'),
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed: () =>

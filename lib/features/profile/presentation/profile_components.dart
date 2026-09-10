@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_design.dart';
-
 class ProfileIdentityHeader extends StatelessWidget {
   const ProfileIdentityHeader({
     required this.name,
@@ -21,12 +19,14 @@ class ProfileIdentityHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Column(
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Stack(
           children: [
             CircleAvatar(
-              radius: 48,
+              key: const Key('profile_avatar'),
+              radius: 25,
               backgroundColor: colors.primaryContainer,
               backgroundImage: avatarUrl?.isNotEmpty == true
                   ? NetworkImage(avatarUrl!)
@@ -34,7 +34,9 @@ class ProfileIdentityHeader extends StatelessWidget {
               child: avatarUrl?.isNotEmpty == true
                   ? null
                   : Icon(Icons.person,
-                      size: 52, color: colors.onPrimaryContainer),
+                      key: const Key('profile_avatar_fallback'),
+                      size: 26,
+                      color: colors.onPrimaryContainer),
             ),
             if (onAvatarTap != null)
               Positioned(
@@ -47,30 +49,55 @@ class ProfileIdentityHeader extends StatelessWidget {
                     tooltip: 'Змінити аватар',
                     onPressed: onAvatarTap,
                     icon: Icon(Icons.camera_alt, color: colors.onPrimary),
-                    iconSize: 20,
+                    iconSize: 13,
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 24,
+                      height: 24,
+                    ),
+                    style: const ButtonStyle(
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
                   ),
                 ),
               ),
           ],
         ),
-        const SizedBox(height: AppSpacing.lg),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Flexible(
-              child: Text(
-                name,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-            ),
-            if (nameAction != null) nameAction!,
-          ],
-        ),
-        Text(
-          subtitle,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium,
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    name,
+                    key: const Key('profile_display_name'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          height: 1.08,
+                        ),
+                  ),
+                ),
+                if (nameAction != null) nameAction!,
+              ]),
+              if (subtitle.isNotEmpty)
+                Text(
+                  subtitle,
+                  key: const Key('profile_subtitle'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.white60),
+                ),
+            ],
+          ),
         ),
       ],
     );
@@ -83,21 +110,36 @@ class ProfileStats extends StatelessWidget {
   final List<({String label, String value})> items;
 
   @override
-  Widget build(BuildContext context) => Wrap(
-        alignment: WrapAlignment.center,
-        spacing: AppSpacing.xl,
-        runSpacing: AppSpacing.md,
+  Widget build(BuildContext context) => Row(
         children: [
           for (final item in items)
-            ConstrainedBox(
-              constraints: const BoxConstraints(minWidth: 84),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(item.value,
-                      style: Theme.of(context).textTheme.titleLarge),
-                  Text(item.label, textAlign: TextAlign.center),
-                ],
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF14231D),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(item.value,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: const Color(0xFFD4A017),
+                              fontWeight: FontWeight.w600,
+                            )),
+                    Text(item.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(fontSize: 10)),
+                  ],
+                ),
               ),
             ),
         ],

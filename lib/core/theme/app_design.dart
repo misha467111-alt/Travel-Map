@@ -27,6 +27,12 @@ ThemeData buildAppTheme() {
   final colors = ColorScheme.fromSeed(
     seedColor: const Color(0xFFD4A017),
     brightness: Brightness.dark,
+  ).copyWith(
+    primary: const Color(0xFFD4A017),
+    onPrimary: const Color(0xFF171106),
+    surface: const Color(0xFF0D1C17),
+    onSurface: const Color(0xFFF5F0E6),
+    outlineVariant: const Color(0xFF294037),
   );
   final inputBorder = OutlineInputBorder(
     borderRadius: BorderRadius.circular(AppRadii.md),
@@ -59,12 +65,21 @@ ThemeData buildAppTheme() {
         color: Colors.white,
       ),
     ),
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        minimumSize: const Size.square(40),
+        maximumSize: const Size.square(40),
+        iconSize: 21,
+        padding: const EdgeInsets.all(8),
+      ),
+    ),
     cardTheme: CardThemeData(
-      elevation: 2,
+      elevation: 0,
       color: const Color(0xFF0D1C17),
       margin: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadii.lg),
+        side: const BorderSide(color: Color(0x1FFFFFFF)),
       ),
       clipBehavior: Clip.antiAlias,
     ),
@@ -101,20 +116,40 @@ ThemeData buildAppTheme() {
       selectedColor: const Color(0xFFD4A017),
       side: const BorderSide(color: Color(0x334CAF50)),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadii.pill),
+        borderRadius: BorderRadius.circular(AppRadii.md),
       ),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+      labelStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: colors.primary,
       linearTrackColor: colors.surfaceContainerHighest,
     ),
-    navigationBarTheme: const NavigationBarThemeData(
-      backgroundColor: Color(0xFF071A15),
-      indicatorColor: Color(0x33D4A017),
-      labelTextStyle: WidgetStatePropertyAll(
-        TextStyle(fontSize: 10, height: 1, overflow: TextOverflow.ellipsis),
-      ),
-      iconTheme: WidgetStatePropertyAll(IconThemeData(size: 22)),
+    dividerTheme: const DividerThemeData(
+      color: Color(0x1FFFFFFF),
+      thickness: 1,
+      space: 1,
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: const Color(0xFF071A15),
+      indicatorColor: const Color(0x14D4A017),
+      labelTextStyle: WidgetStateProperty.resolveWith((states) => TextStyle(
+            fontSize: 10,
+            height: 1,
+            fontWeight: states.contains(WidgetState.selected)
+                ? FontWeight.w600
+                : FontWeight.w500,
+            color: states.contains(WidgetState.selected)
+                ? const Color(0xFFD4A017)
+                : const Color(0xFF9DA9A3),
+          )),
+      iconTheme: WidgetStateProperty.resolveWith((states) => IconThemeData(
+            size: 20,
+            color: states.contains(WidgetState.selected)
+                ? const Color(0xFFD4A017)
+                : const Color(0xFF9DA9A3),
+          )),
       height: 64,
     ),
   );

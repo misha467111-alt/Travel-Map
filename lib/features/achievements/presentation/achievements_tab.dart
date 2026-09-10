@@ -39,10 +39,10 @@ class AchievementsTab extends ConsumerWidget {
                         MediaQuery.sizeOf(context).width < 520 ? 1 : 2,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
-                    mainAxisExtent: MediaQuery.textScalerOf(context).scale(1) >
-                            1.2
-                        ? 330
-                        : (MediaQuery.sizeOf(context).width < 520 ? 300 : 292),
+                    mainAxisExtent:
+                        MediaQuery.textScalerOf(context).scale(1) > 1.2
+                            ? 218
+                            : 190,
                   ),
                 ),
               ),
@@ -57,7 +57,7 @@ class AchievementsTab extends ConsumerWidget {
           child: FilledButton.icon(
             onPressed: () => ref.invalidate(achievementsProvider),
             icon: const Icon(Icons.refresh),
-            label: Text('Не вдалося завантажити: $error'),
+            label: const Text('Не вдалося завантажити досягнення'),
           ),
         ),
       ),
@@ -75,10 +75,10 @@ class _ProgressHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final fraction = total == 0 ? 0.0 : unlocked / total;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFF142416),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(11),
         border: Border.all(color: Colors.amber.withValues(alpha: 0.45)),
       ),
       child: Column(
@@ -93,8 +93,8 @@ class _ProgressHeader extends StatelessWidget {
                   'Досягнення $unlocked / $total',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
                   ),
                 ),
               ),
@@ -102,7 +102,7 @@ class _ProgressHeader extends StatelessWidget {
                 '${(fraction * 100).round()}%',
                 style: const TextStyle(
                   color: Colors.amber,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
@@ -110,7 +110,7 @@ class _ProgressHeader extends StatelessWidget {
           const SizedBox(height: 10),
           LinearProgressIndicator(
             value: fraction,
-            minHeight: 8,
+            minHeight: 6,
             borderRadius: BorderRadius.circular(99),
             backgroundColor: Colors.white12,
             color: Colors.amber,
@@ -132,7 +132,7 @@ class _AchievementCard extends StatelessWidget {
     return Card(
       color: unlocked ? const Color(0xFF203E20) : const Color(0xFF121C13),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(11),
         side: BorderSide(
           color:
               unlocked ? Colors.amber.withValues(alpha: 0.8) : Colors.white10,
@@ -140,35 +140,19 @@ class _AchievementCard extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Align(
-              alignment: Alignment.topLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.black26,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  achievement.category,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white54, fontSize: 9),
-                ),
-              ),
-            ),
-            const SizedBox(height: 6),
             Stack(
               alignment: Alignment.bottomRight,
               children: [
                 CircleAvatar(
-                  radius: 29,
+                  radius: 25,
                   backgroundColor:
                       unlocked ? Colors.amber : Colors.grey.shade800,
                   child: Icon(
                     _iconFor(achievement.icon),
-                    size: 31,
+                    size: 27,
                     color: unlocked ? Colors.black : Colors.grey.shade500,
                   ),
                 ),
@@ -180,63 +164,67 @@ class _AchievementCard extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              achievement.name,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                color: unlocked ? Colors.amber : Colors.white,
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              achievement.description,
-              textAlign: TextAlign.center,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white60, fontSize: 10),
-            ),
-            const Spacer(),
-            if (unlocked)
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.check_circle, size: 15, color: Colors.greenAccent),
-                  SizedBox(width: 4),
-                  Text('Розблоковано',
-                      style: TextStyle(
-                          color: Colors.greenAccent,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700)),
+                  Text(
+                    achievement.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: unlocked ? Colors.amber : Colors.white,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    achievement.description,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white60, fontSize: 12),
+                  ),
+                  const Spacer(),
+                  if (unlocked)
+                    const Row(children: [
+                      Icon(Icons.check_circle,
+                          size: 15, color: Colors.greenAccent),
+                      SizedBox(width: 4),
+                      Text('Розблоковано',
+                          style: TextStyle(
+                              color: Colors.greenAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600)),
+                    ])
+                  else ...[
+                    Text(
+                      achievement.unlockCondition,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          const TextStyle(color: Colors.white54, fontSize: 11),
+                    ),
+                    const SizedBox(height: 6),
+                    LinearProgressIndicator(
+                      value: achievement.progressFraction,
+                      minHeight: 6,
+                      borderRadius: BorderRadius.circular(99),
+                      backgroundColor: Colors.white10,
+                      color: Colors.amber,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${achievement.progress.toStringAsFixed(0)} / '
+                      '${achievement.target.toStringAsFixed(0)}',
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 11),
+                    ),
+                  ],
                 ],
-              )
-            else ...[
-              Text(
-                achievement.unlockCondition,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white54, fontSize: 9),
               ),
-              const SizedBox(height: 5),
-              LinearProgressIndicator(
-                value: achievement.progressFraction,
-                minHeight: 6,
-                borderRadius: BorderRadius.circular(99),
-                backgroundColor: Colors.white10,
-                color: Colors.amber,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${achievement.progress.toStringAsFixed(0)} / '
-                '${achievement.target.toStringAsFixed(0)}',
-                style: const TextStyle(color: Colors.white70, fontSize: 10),
-              ),
-            ],
+            ),
           ],
         ),
       ),
