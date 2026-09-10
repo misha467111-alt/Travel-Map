@@ -28,16 +28,37 @@ migrate_working_dir/
 .env.local
 .env.audit
 
+# Firebase/Google Services config (contains a project-restricted API key).
+android/app/google-services.json
+
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
 node_modules/
 /build/
 /coverage/
+android/build/
+ios/build/
+**/build/
+
+# Local debug/session artifacts (uiautomator dumps, ad-hoc admin scripts,
+# tool caches) - never meant to be part of the source tree.
+.adb-home/
+.audit-tools/
+.tool-appdata/
+*.xml
+!android/**/*.xml
+!ios/**/*.xml
+!macos/**/*.xml
+!windows/**/*.xml
+!linux/**/*.xml
+!web/**/*.xml
+!third_party/**/*.xml
 
 # Symbolication related
 app.*.symbols
