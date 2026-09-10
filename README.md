@@ -1,4 +1,6 @@
-# Travel
+# Travel Map
+
+Travel Map — мобільний застосунок для пошуку, створення та поширення цікавих місць з можливістю будувати піші та автомобільні маршрути.
 
 Social discovery app built with Flutter, Riverpod, GoRouter, Supabase and PostGIS.
 
