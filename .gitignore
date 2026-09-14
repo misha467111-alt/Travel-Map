@@ -28,6 +28,11 @@ migrate_working_dir/
 .env.local
 .env.audit
 
+# Supabase CLI local cache (link state, version checks, pooler URL) --
+# machine-local, fully reproducible via `supabase link`, never project
+# config, migrations, or production state.
+supabase/.temp/
+
 # Firebase/Google Services config (contains a project-restricted API key).
 android/app/google-services.json
 
