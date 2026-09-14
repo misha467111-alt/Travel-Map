@@ -49,7 +49,7 @@ The baseline intentionally reproduces factual ACL rather than silently changing 
 
 - several `SECURITY DEFINER` RPC functions grant execute to `anon`;
 - bounded travel RPC functions retain `PUBLIC` execute;
-- four broad legacy-named Storage policies target `places_photos`, a bucket not included in the canonical bucket set.
+- ~~four broad legacy-named Storage policies target `places_photos`, a bucket not included in the canonical bucket set.~~ **RESOLVED** (`202609100001_fix_phase1_security_database.sql` replaced the write-side policies with an owner-scoped pattern; `202609110001_drop_places_photos_bucket.sql` subsequently confirmed the bucket was orphaned — 0 objects, unreferenced by the app/Edge Functions/SQL — and removed it along with its remaining Storage policies entirely. `places_photos` no longer exists in production.)
 
 These findings require a separate reviewed hardening migration after baseline reconciliation. They must not be folded into the factual baseline.
 
