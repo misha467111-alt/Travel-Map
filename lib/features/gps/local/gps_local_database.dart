@@ -23,12 +23,18 @@ abstract class RouteEventType {
   static const discard = 'discard';
 }
 
-/// Mirrors the server's `record_route_events` lifecycle vocabulary
-/// exactly (see supabase/migrations/202609140002_trips_gps_core.sql).
+/// A waypoint's local sync/deletion state.
+///
+/// [pendingDelete] is a tombstone, not a real waypoint state on the
+/// server — it exists so a local delete of a possibly-already-synced
+/// waypoint can still be pushed to the server later instead of silently
+/// leaving an orphaned row there forever. See
+/// [GpsLocalDatabase.deleteWaypoint] for the full reasoning.
 abstract class WaypointSyncStatus {
   static const pending = 'pending';
   static const synced = 'synced';
   static const failed = 'failed';
+  static const pendingDelete = 'pendingDelete';
 }
 
 abstract class RouteSyncStatus {
@@ -60,6 +66,14 @@ class InvalidRouteStatusTransition implements Exception {
 /// index on [LocalRecordedRoutes] (see its class doc) is the actual
 /// enforcement; this is just a nicer failure mode than a raw SQLite
 /// constraint-violation exception.
+class WaypointTombstonedException implements Exception {
+  WaypointTombstonedException(this.waypointId);
+  final String waypointId;
+  @override
+  String toString() => 'WaypointTombstonedException: waypoint $waypointId is '
+      'pending deletion and can no longer be edited';
+}
+
 class ActiveRecordingExistsException implements Exception {
   ActiveRecordingExistsException(this.existingRouteId);
   final String existingRouteId;
@@ -765,6 +779,12 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   /// Editing title/note/type resets syncStatus back to 'pending' so a
   /// previously-synced waypoint is correctly re-queued — the whole
   /// reason this table uses per-row sync state instead of a cursor.
+  ///
+  /// Throws [WaypointTombstonedException] if the waypoint is currently a
+  /// deletion tombstone ([WaypointSyncStatus.pendingDelete]) — a
+  /// tombstone represents "this must be deleted," not a live waypoint,
+  /// so editing it (which would silently resurrect it as a normal
+  /// 'pending' waypoint) is rejected outright.
   Future<void> updateWaypointMetadata({
     required String ownerId,
     required String id,
@@ -772,6 +792,16 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     Value<String?> note = const Value.absent(),
     Value<String> waypointType = const Value.absent(),
   }) async {
+    final row = await (select(localWaypoints)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+        .getSingleOrNull();
+    if (row == null) {
+      throw StateError('waypoint $id not found for this owner');
+    }
+    if (row.syncStatus == WaypointSyncStatus.pendingDelete) {
+      throw WaypointTombstonedException(id);
+    }
+
     await (update(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
         .write(LocalWaypointsCompanion(
       title: title,
@@ -782,32 +812,78 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     ));
   }
 
-  Future<void> deleteWaypoint({required String ownerId, required String id}) {
-    return (delete(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
-        .go();
+  /// Sync-safe deletion.
+  ///
+  /// A waypoint that has never been confirmed synced
+  /// ([WaypointSyncStatus.pending]) is physically removed: the server
+  /// never had it, so there is nothing to reconcile.
+  ///
+  /// A waypoint that IS or MIGHT BE synced ([WaypointSyncStatus.synced]
+  /// or [WaypointSyncStatus.failed] — 'failed' is treated as "may have
+  /// reached the server even though we never got confirmation," the
+  /// same idempotent-retry caution already applied to
+  /// finalize_recorded_route in GPS-1) is instead turned into a
+  /// tombstone: its syncStatus becomes [WaypointSyncStatus.pendingDelete]
+  /// and the row is preserved, so a future sync engine can still push
+  /// the deletion to the server.
+  ///
+  /// Normal reads ([getWaypoints]/[watchWaypoints]) never return a
+  /// tombstoned row. Use [getTombstonedWaypoints] to find one, and
+  /// [purgeAcknowledgedTombstone] to physically remove it once the
+  /// server has confirmed the deletion — never call that from general
+  /// app code before that confirmation exists.
+  Future<void> deleteWaypoint({required String ownerId, required String id}) async {
+    final row = await (select(localWaypoints)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+        .getSingleOrNull();
+    if (row == null) return;
+
+    if (row.syncStatus == WaypointSyncStatus.pending) {
+      await (delete(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+          .go();
+      return;
+    }
+
+    await (update(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+        .write(LocalWaypointsCompanion(
+      syncStatus: const Value(WaypointSyncStatus.pendingDelete),
+      updatedAt: Value(DateTime.now().toUtc()),
+    ));
   }
 
+  /// Waypoints visible to normal UI use — a tombstone
+  /// ([WaypointSyncStatus.pendingDelete]) is never returned here.
   Future<List<LocalWaypoint>> getWaypoints({
     required String ownerId,
     required String recordedRouteId,
   }) async {
     final rows = await (select(localWaypoints)
-          ..where((t) => t.ownerId.equals(ownerId) & t.recordedRouteId.equals(recordedRouteId))
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.syncStatus.equals(WaypointSyncStatus.pendingDelete).not())
           ..orderBy([(t) => OrderingTerm.asc(t.recordedAt)]))
         .get();
     return rows.map(_normalizeWaypoint).toList(growable: false);
   }
 
+  /// Reactive version of [getWaypoints] — same tombstone exclusion.
   Stream<List<LocalWaypoint>> watchWaypoints({
     required String ownerId,
     required String recordedRouteId,
   }) {
     final query = select(localWaypoints)
-      ..where((t) => t.ownerId.equals(ownerId) & t.recordedRouteId.equals(recordedRouteId))
+      ..where((t) =>
+          t.ownerId.equals(ownerId) &
+          t.recordedRouteId.equals(recordedRouteId) &
+          t.syncStatus.equals(WaypointSyncStatus.pendingDelete).not())
       ..orderBy([(t) => OrderingTerm.asc(t.recordedAt)]);
     return query.watch().map((rows) => rows.map(_normalizeWaypoint).toList(growable: false));
   }
 
+  /// Waypoints needing a create/update push — a sync-oriented query;
+  /// deliberately excludes tombstones (they need a *delete* push
+  /// instead, see [getTombstonedWaypoints]).
   Future<List<LocalWaypoint>> getUnsyncedWaypoints({
     required String ownerId,
     required String recordedRouteId,
@@ -821,8 +897,56 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     return rows.map(_normalizeWaypoint).toList(growable: false);
   }
 
+  /// Deletion tombstones needing a delete push to the server — the
+  /// sync-oriented counterpart to [getWaypoints]/[watchWaypoints]
+  /// deliberately hiding them from normal UI use.
+  Future<List<LocalWaypoint>> getTombstonedWaypoints({
+    required String ownerId,
+    required String recordedRouteId,
+  }) async {
+    final rows = await (select(localWaypoints)
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.syncStatus.equals(WaypointSyncStatus.pendingDelete)))
+        .get();
+    return rows.map(_normalizeWaypoint).toList(growable: false);
+  }
+
+  /// Marks a waypoint as successfully synced. Throws if called on a
+  /// tombstone — a sync engine acknowledging a *deletion* must call
+  /// [purgeAcknowledgedTombstone] instead, never this method, which
+  /// would otherwise silently resurrect a pending-delete row as a live
+  /// 'synced' waypoint.
   Future<void> markWaypointSynced({required String ownerId, required String id}) async {
+    final row = await (select(localWaypoints)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+        .getSingleOrNull();
+    if (row == null) return;
+    if (row.syncStatus == WaypointSyncStatus.pendingDelete) {
+      throw StateError(
+          'markWaypointSynced called on tombstoned waypoint $id — use purgeAcknowledgedTombstone instead');
+    }
     await (update(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
         .write(const LocalWaypointsCompanion(syncStatus: Value(WaypointSyncStatus.synced)));
+  }
+
+  /// Physically removes a tombstoned waypoint row. Must only be called
+  /// by a future sync engine after the server has confirmed the
+  /// corresponding delete succeeded — never from general app code, and
+  /// never as a substitute for [deleteWaypoint]. Throws if the row
+  /// isn't actually a tombstone, to catch a caller bug rather than
+  /// silently deleting a live waypoint.
+  Future<void> purgeAcknowledgedTombstone({required String ownerId, required String id}) async {
+    final row = await (select(localWaypoints)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+        .getSingleOrNull();
+    if (row == null) return;
+    if (row.syncStatus != WaypointSyncStatus.pendingDelete) {
+      throw StateError(
+          'purgeAcknowledgedTombstone called on a non-tombstoned waypoint $id (syncStatus=${row.syncStatus})');
+    }
+    await (delete(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+        .go();
   }
 }

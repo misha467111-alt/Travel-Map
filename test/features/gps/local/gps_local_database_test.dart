@@ -264,7 +264,7 @@ void main() {
       expect(waypoints.single.title, 'Nice view');
     });
 
-    test('deleteWaypoint removes it', () async {
+    test('deleteWaypoint removes it (never-synced case)', () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.addWaypoint(
@@ -306,6 +306,170 @@ void main() {
 
       final unsynced = await db.getUnsyncedWaypoints(ownerId: 'me', recordedRouteId: 'r1');
       expect(unsynced.map((w) => w.id), ['wp2']);
+    });
+  });
+
+  group('waypoint deletion tombstones', () {
+    Future<void> createRouteAndWaypoint(
+      GpsLocalDatabase db, {
+      required String ownerId,
+      required String routeId,
+      required String waypointId,
+    }) async {
+      await db.createLocalRecordedRoute(
+          id: routeId, ownerId: ownerId, startedAt: DateTime.utc(2026, 1, 1));
+      await db.addWaypoint(
+        id: waypointId,
+        ownerId: ownerId,
+        recordedRouteId: routeId,
+        waypointType: 'photo_point',
+        latitude: 50.4,
+        longitude: 30.5,
+        recordedAt: DateTime.utc(2026, 1, 1),
+      );
+    }
+
+    test('deleting a never-synced waypoint removes it safely (no tombstone left)',
+        () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      // syncStatus is 'pending' by default -- never confirmed synced.
+      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+
+      expect(await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
+      expect(
+          await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
+    });
+
+    test('deleting a synced waypoint creates and preserves a tombstone', () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+
+      final tombstones =
+          await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1');
+      expect(tombstones, hasLength(1));
+      expect(tombstones.single.id, 'wp1');
+      expect(tombstones.single.syncStatus, WaypointSyncStatus.pendingDelete);
+    });
+
+    test('deleting a waypoint whose last sync attempt failed also creates a '
+        'tombstone (treated as "may have reached the server")', () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      // Simulate a failed sync attempt directly (no public API mutates a
+      // waypoint straight to 'failed' yet -- that's a future sync-engine
+      // concern -- so this writes the column directly for the test).
+      await (db.update(db.localWaypoints)..where((t) => t.id.equals('wp1')))
+          .write(const LocalWaypointsCompanion(syncStatus: Value(WaypointSyncStatus.failed)));
+
+      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+
+      final tombstones =
+          await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1');
+      expect(tombstones, hasLength(1));
+    });
+
+    test('a normal waypoint query (getWaypoints) does not return a tombstone',
+        () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+
+      expect(await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
+    });
+
+    test('watchWaypoints also excludes a tombstone', () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
+
+      final emissions = <int>[];
+      final sub = db
+          .watchWaypoints(ownerId: 'me', recordedRouteId: 'r1')
+          .listen((waypoints) => emissions.add(waypoints.length));
+      await pumpEventQueue();
+      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await pumpEventQueue();
+
+      expect(emissions, [1, 0]);
+      await sub.cancel();
+    });
+
+    test('a sync/deletion-oriented query (getTombstonedWaypoints) returns the tombstone',
+        () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+
+      final tombstones =
+          await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1');
+      expect(tombstones.map((w) => w.id), ['wp1']);
+    });
+
+    test('editing a tombstoned waypoint is rejected', () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+
+      expect(
+        () => db.updateWaypointMetadata(
+            ownerId: 'me', id: 'wp1', title: const Value('too late')),
+        throwsA(isA<WaypointTombstonedException>()),
+      );
+    });
+
+    test('markWaypointSynced rejects a tombstoned waypoint (must use '
+        'purgeAcknowledgedTombstone instead)', () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+
+      expect(
+        () => db.markWaypointSynced(ownerId: 'me', id: 'wp1'),
+        throwsA(isA<StateError>()),
+      );
+    });
+
+    test('purgeAcknowledgedTombstone physically removes an acknowledged tombstone',
+        () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+
+      await db.purgeAcknowledgedTombstone(ownerId: 'me', id: 'wp1');
+
+      expect(
+          await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
+    });
+
+    test('purgeAcknowledgedTombstone refuses to remove a non-tombstoned (live) waypoint',
+        () async {
+      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+
+      expect(
+        () => db.purgeAcknowledgedTombstone(ownerId: 'me', id: 'wp1'),
+        throwsA(isA<StateError>()),
+      );
+      // Still there, untouched.
+      expect(await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), hasLength(1));
+    });
+
+    test('account isolation applies to tombstones too', () async {
+      await createRouteAndWaypoint(db, ownerId: 'accountA', routeId: 'r1', waypointId: 'wp1');
+      await db.markWaypointSynced(ownerId: 'accountA', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'accountA', id: 'wp1');
+
+      // Account B cannot see account A's tombstone through any query.
+      expect(
+          await db.getTombstonedWaypoints(ownerId: 'accountB', recordedRouteId: 'r1'),
+          isEmpty);
+      expect(await db.getWaypoints(ownerId: 'accountB', recordedRouteId: 'r1'), isEmpty);
+      // And account B cannot purge it either -- the ownerId-scoped WHERE
+      // clause simply finds no matching row, so this is a silent no-op
+      // rather than an error or a cross-account mutation.
+      await db.purgeAcknowledgedTombstone(ownerId: 'accountB', id: 'wp1');
+      expect(
+          await db.getTombstonedWaypoints(ownerId: 'accountA', recordedRouteId: 'r1'),
+          hasLength(1),
+          reason: 'account B\'s no-op purge attempt must not affect account A\'s tombstone');
     });
   });
 

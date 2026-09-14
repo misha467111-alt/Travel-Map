@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../controllers/profile_controller.dart';
 import '../../chat/local/chat_local_database_provider.dart';
+import '../../gps/local/gps_local_database_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -13,11 +14,22 @@ class SettingsScreen extends ConsumerWidget {
         builder: (context, _) => SettingsPage(
           offlineMode: profileController.isOfflineMode,
           onOfflineChanged: profileController.setOfflineMode,
-          onLogout: () => _logout(ref),
+          onLogout: () => _logout(context, ref),
         ),
       );
 
-  Future<void> _logout(WidgetRef ref) async {
+  Future<void> _logout(BuildContext context, WidgetRef ref) async {
+    final blockingRouteId = await blockingActiveRecordingId(ref);
+    if (blockingRouteId != null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+            'Завершіть або скасуйте активний GPS-запис перед виходом з акаунту.',
+          ),
+        ));
+      }
+      return;
+    }
     await clearChatCacheOnLogout(ref);
     await profileController.logout();
   }

@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../achievements/providers/achievements_provider.dart';
 import '../../chat/local/chat_local_database_provider.dart';
+import '../../gps/local/gps_local_database_provider.dart';
 import '../../navigation/presentation/main_navigation_screen.dart';
 import '../../social/providers/public_profile_provider.dart';
 import '../domain/user_profile.dart';
@@ -153,6 +154,17 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
   }
 
   Future<void> _logout() async {
+    final blockingRouteId = await blockingActiveRecordingId(ref);
+    if (blockingRouteId != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+            'Завершіть або скасуйте активний GPS-запис перед виходом з акаунту.',
+          ),
+        ));
+      }
+      return;
+    }
     await clearChatCacheOnLogout(ref);
     await profileController.logout();
   }

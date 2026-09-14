@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'gps_local_database.dart';
 
@@ -26,6 +27,33 @@ final gpsLocalDatabaseProvider = Provider<GpsLocalDatabase>((ref) {
 /// (they may be the only copy of unsynced data), so logout must never
 /// delete them. Isolation between accounts on a shared device is
 /// achieved purely by every query being scoped to the caller's own
-/// ownerId, never by deletion. [GpsLocalDatabase.getRecoverableRecording]
-/// is the hook a future logout guard should use to detect and block an
-/// in-progress recording before allowing sign-out.
+/// ownerId, never by deletion.
+
+/// The actual guard decision, kept separate from and independent of
+/// Supabase/Riverpod so it can be unit-tested directly with a plain
+/// in-memory [GpsLocalDatabase] and an explicit (possibly null) userId —
+/// no live Supabase session required, mirroring how
+/// ChatConversationController's Supabase-touching parts are kept thin so
+/// the logic around them can be tested without one either.
+///
+/// Returns the id of that account's recording/paused local route if one
+/// exists (logout must be blocked), or `null` if logout may proceed. A
+/// null [userId] (no session) never blocks — there is nothing to guard.
+Future<String?> blockingActiveRecordingIdFor(GpsLocalDatabase db, String? userId) async {
+  if (userId == null) return null;
+  final recording = await db.getRecoverableRecording(userId);
+  return recording?.id;
+}
+
+/// The centralized logout guard: every real logout entry point in the
+/// app must call this *before* clearing any cache or calling
+/// `profileController.logout()`, and must not proceed if it returns
+/// non-null. Never deletes, finishes, or discards anything itself — it
+/// only reports whether an active recording exists, matching the
+/// "never silently finish/discard it" requirement. This is the one
+/// place the check lives; every UI logout call site calls this same
+/// function rather than each re-implementing the query itself.
+Future<String?> blockingActiveRecordingId(WidgetRef ref) {
+  final userId = Supabase.instance.client.auth.currentUser?.id;
+  return blockingActiveRecordingIdFor(ref.read(gpsLocalDatabaseProvider), userId);
+}
