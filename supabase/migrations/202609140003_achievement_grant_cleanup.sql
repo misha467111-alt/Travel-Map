@@ -1,0 +1,23 @@
+-- Small, separate follow-up to 202609140001_security_definer_grant_hardening.sql.
+--
+-- Evidence (re-confirmed fresh, not reused from memory, immediately
+-- before writing this migration):
+--   - `grep -rn "check_and_unlock_achievements" lib/` returns zero
+--     matches -- no Flutter/client code calls this function directly.
+--   - Its only caller anywhere in the active schema is
+--     get_achievement_progress()'s internal
+--     `perform public.check_and_unlock_achievements();`
+--     (202608290000_production_canonical_baseline.sql:610).
+--   - check_and_unlock_achievements() is itself SECURITY DEFINER and
+--     resolves auth.uid() internally (never takes an externally supplied
+--     user id), so get_achievement_progress()'s call to it runs as the
+--     function owner and needs no explicit EXECUTE grant to keep working
+--     -- exactly the same reasoning already applied to
+--     achievement_metric_value in 202609140001.
+--   - Current live grant (from the baseline, untouched by 202609140001):
+--     anon, authenticated, service_role.
+--
+-- service_role is left untouched, consistent with 202609140001: it is
+-- not a client-facing role, so narrowing it adds no security value.
+revoke execute on function public.check_and_unlock_achievements()
+  from anon, authenticated;
