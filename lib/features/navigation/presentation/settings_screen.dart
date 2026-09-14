@@ -1,19 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../controllers/profile_controller.dart';
+import '../../chat/local/chat_local_database_provider.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
+  Widget build(BuildContext context, WidgetRef ref) => ListenableBuilder(
         listenable: profileController,
         builder: (context, _) => SettingsPage(
           offlineMode: profileController.isOfflineMode,
           onOfflineChanged: profileController.setOfflineMode,
-          onLogout: profileController.logout,
+          onLogout: () => _logout(ref),
         ),
       );
+
+  Future<void> _logout(WidgetRef ref) async {
+    await clearChatCacheOnLogout(ref);
+    await profileController.logout();
+  }
 }
 
 class SettingsPage extends StatelessWidget {

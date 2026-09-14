@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../providers/chat_provider.dart';
+import '../../chat/conversation/chat_conversation_controller.dart';
+import '../../chat/local/chat_local_database.dart';
 import '../../friends/domain/friend_models.dart';
 import '../../friends/providers/friends_provider.dart';
 import '../../social/presentation/user_profile_screen.dart';
@@ -81,10 +83,55 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _controller = TextEditingController();
+  final _scrollController = ScrollController();
   bool _sending = false;
+  double? _extentBeforeLoadOlder;
+  String? _lastFirstMessageId;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    if (_scrollController.position.pixels <= 200) {
+      _extentBeforeLoadOlder ??= _scrollController.position.maxScrollExtent;
+      ref.read(chatConversationProvider(widget.friend.id)).loadOlder();
+    }
+  }
+
+  /// If the oldest-known message changed (older messages were prepended
+  /// by [ChatConversationController.loadOlder]), keep the user's current
+  /// viewport anchored to the same content instead of letting the list
+  /// visually jump.
+  void _maybeRestoreScrollAfterPrepend(List<LocalMessage> messages) {
+    if (messages.isEmpty) {
+      _lastFirstMessageId = null;
+      return;
+    }
+    final firstId = messages.first.id;
+    final prepended =
+        _lastFirstMessageId != null && firstId != _lastFirstMessageId;
+    _lastFirstMessageId = firstId;
+    final before = _extentBeforeLoadOlder;
+    if (prepended && before != null) {
+      _extentBeforeLoadOlder = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scrollController.hasClients) return;
+        final delta = _scrollController.position.maxScrollExtent - before;
+        if (delta > 0) {
+          _scrollController.jumpTo(_scrollController.position.pixels + delta);
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -95,7 +142,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() => _sending = true);
     try {
       await ref.read(chatServiceProvider).sendMessage(widget.friend.id, text);
-      _controller.clear();
+      if (mounted) _controller.clear();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Не вдалося надіслати повідомлення. Спробуйте ще раз.'),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -126,20 +182,64 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
         body: Column(children: [
           Expanded(
-            child: ref.watch(chatStreamProvider(widget.friend.id)).when(
+            child: ref
+                .watch(chatConversationStateProvider(widget.friend.id))
+                .when(
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
                   error: (error, _) => const Center(
                     child: Text('Не вдалося завантажити повідомлення.'),
                   ),
-                  data: (rows) => rows.isEmpty
-                      ? const Center(child: Text('Напишіть перше повідомлення'))
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                          itemCount: rows.length,
-                          itemBuilder: (_, index) =>
-                              _MessageBubble(row: rows[index]),
+                  data: (state) {
+                    _maybeRestoreScrollAfterPrepend(state.messages);
+                    if (state.messages.isEmpty) {
+                      if (state.syncError != null) {
+                        return _ChatRetryState(
+                          message: state.syncError!,
+                          onRetry: () => ref
+                              .read(chatConversationProvider(widget.friend.id))
+                              .retry(),
+                        );
+                      }
+                      return const Center(
+                          child: Text('Напишіть перше повідомлення'));
+                    }
+                    return Column(children: [
+                      if (state.isOffline)
+                        const _ChatStatusBanner(
+                          text: 'Немає з’єднання. Показано збережені '
+                              'повідомлення.',
                         ),
+                      if (!state.isOffline && state.syncError != null)
+                        _ChatStatusBanner(text: state.syncError!),
+                      Expanded(
+                        child: ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                          itemCount: state.messages.length +
+                              (state.isLoadingOlder ? 1 : 0),
+                          itemBuilder: (_, index) {
+                            if (state.isLoadingOlder && index == 0) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Center(
+                                  child: SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  ),
+                                ),
+                              );
+                            }
+                            final msgIndex =
+                                state.isLoadingOlder ? index - 1 : index;
+                            return _MessageBubble(
+                                message: state.messages[msgIndex]);
+                          },
+                        ),
+                      ),
+                    ]);
+                  },
                 ),
           ),
           SafeArea(
@@ -182,14 +282,48 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
 }
 
+class _ChatStatusBanner extends StatelessWidget {
+  const _ChatStatusBanner({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: double.infinity,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Text(text, style: Theme.of(context).textTheme.labelSmall),
+      );
+}
+
+class _ChatRetryState extends StatelessWidget {
+  const _ChatRetryState({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(message, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: onRetry,
+              child: const Text('Спробувати ще раз'),
+            ),
+          ]),
+        ),
+      );
+}
+
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.row});
-  final Map<String, dynamic> row;
+  const _MessageBubble({required this.message});
+  final LocalMessage message;
 
   @override
   Widget build(BuildContext context) {
     final mine =
-        row['sender_id'] == Supabase.instance.client.auth.currentUser?.id;
+        message.senderId == Supabase.instance.client.auth.currentUser?.id;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -210,9 +344,9 @@ class _MessageBubble extends StatelessWidget {
           ),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text((row['text'] ?? '').toString()),
+          Text(message.body ?? ''),
           const SizedBox(height: 3),
-          Text(_messageTime(row),
+          Text(_localMessageTime(message),
               style: Theme.of(context).textTheme.labelSmall),
         ]),
       ),
@@ -258,5 +392,10 @@ String _messageTime(Map<String, dynamic> row) {
   final raw = row['timestamp'] ?? row['created_at'];
   final value = DateTime.tryParse(raw?.toString() ?? '')?.toLocal();
   if (value == null) return '';
+  return '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+}
+
+String _localMessageTime(LocalMessage message) {
+  final value = message.createdAt.toLocal();
   return '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 }

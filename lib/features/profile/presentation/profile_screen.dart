@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../controllers/profile_controller.dart';
 import '../../achievements/providers/achievements_provider.dart';
+import '../../chat/local/chat_local_database_provider.dart';
 import '../../navigation/presentation/main_navigation_screen.dart';
 import '../../social/providers/public_profile_provider.dart';
 import '../domain/user_profile.dart';
@@ -135,7 +138,11 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
 
   void _open(String destination) {
     if (destination == 'logout') {
-      (widget.onLogout ?? profileController.logout).call();
+      if (widget.onLogout != null) {
+        widget.onLogout!();
+      } else {
+        unawaited(_logout());
+      }
     } else {
       if (widget.onDestination != null) {
         widget.onDestination!(destination);
@@ -143,6 +150,11 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
         openSecondarySection(context, destination);
       }
     }
+  }
+
+  Future<void> _logout() async {
+    await clearChatCacheOnLogout(ref);
+    await profileController.logout();
   }
 
   @override
