@@ -44,6 +44,13 @@ void main() {
         'omits altitude/speed/heading when the platform did not report them, '
         'rather than passing through a meaningless 0.0 placeholder', () {
       final sample = validateGpsSample(testPosition(
+        altitude: 0,
+        altitudeAccuracy: 0,
+        accuracy: 0,
+        speed: 0,
+        speedAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
         hasAltitude: false,
         hasSpeed: false,
         hasHeading: false,
@@ -60,6 +67,18 @@ void main() {
       expect(sample.verticalAccuracy, isNull);
       expect(sample.headingAccuracy, isNull);
       expect(sample.speedAccuracy, isNull);
+    });
+
+    test(
+        'keeps a non-zero measurement when an Android adapter loses its presence flag',
+        () {
+      final sample = validateGpsSample(testPosition(
+        accuracy: 12.5,
+        hasAccuracy: false,
+      ));
+
+      expect(sample, isNotNull);
+      expect(sample!.horizontalAccuracy, 12.5);
     });
 
     test(

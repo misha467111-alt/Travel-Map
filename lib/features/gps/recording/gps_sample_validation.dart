@@ -53,26 +53,29 @@ ValidatedGpsSample? validateGpsSample(Position position) {
   if (lng < -180 || lng > 180) return null;
 
   // accuracy/altitude/speed/heading are all optional/nullable inputs
-  // downstream -- only pass through a value when the plugin actually
-  // reports one (via has*) AND it is finite. A non-finite optional
-  // field is simply omitted, not a reason to reject the whole sample:
-  // the position itself is still valid data worth keeping.
-  double? finiteOrNull(bool has, double value) =>
-      (has && value.isFinite) ? value : null;
+  // downstream. Android's installed geolocator adapter can lose its has*
+  // presence bits while retaining a non-zero native measurement, so retain a
+  // finite non-zero value as a compatibility fallback. An absent Android
+  // measurement is represented as 0.0, so that placeholder remains omitted.
+  // A non-finite optional field is never a reason to reject the whole sample.
+  double? finiteMeasuredOrNull(bool has, double value) =>
+      value.isFinite && (has || value != 0) ? value : null;
 
   return ValidatedGpsSample(
     latitude: lat,
     longitude: lng,
     recordedAt: position.timestamp.toUtc(),
-    altitude: finiteOrNull(position.hasAltitude, position.altitude),
-    horizontalAccuracy: finiteOrNull(position.hasAccuracy, position.accuracy),
+    altitude:
+        finiteMeasuredOrNull(position.hasAltitude, position.altitude),
+    horizontalAccuracy:
+        finiteMeasuredOrNull(position.hasAccuracy, position.accuracy),
     verticalAccuracy:
-        finiteOrNull(position.hasAltitudeAccuracy, position.altitudeAccuracy),
-    speed: finiteOrNull(position.hasSpeed, position.speed),
+        finiteMeasuredOrNull(position.hasAltitudeAccuracy, position.altitudeAccuracy),
+    speed: finiteMeasuredOrNull(position.hasSpeed, position.speed),
     speedAccuracy:
-        finiteOrNull(position.hasSpeedAccuracy, position.speedAccuracy),
-    heading: finiteOrNull(position.hasHeading, position.heading),
+        finiteMeasuredOrNull(position.hasSpeedAccuracy, position.speedAccuracy),
+    heading: finiteMeasuredOrNull(position.hasHeading, position.heading),
     headingAccuracy:
-        finiteOrNull(position.hasHeadingAccuracy, position.headingAccuracy),
+        finiteMeasuredOrNull(position.hasHeadingAccuracy, position.headingAccuracy),
   );
 }
