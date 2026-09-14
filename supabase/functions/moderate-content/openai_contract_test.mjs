@@ -13,7 +13,7 @@ test('provider request uses the configured Responses API endpoint and trusted DB
 
 test('HTTP 401, 429 and 500 all take the provider failure pending path', () => {
   assert.match(source, /if \(!providerResponse\.ok\)/)
-  assert.match(source, /await recordFailure\('provider_failure'\)/)
+  assert.match(source, /await recordFailure\(`provider_failure_\$\{status\}_\$\{errorType\}`\)/)
   assert.match(source, /return json\(\{ status: 'pending', error: 'provider_failure' \}, 502\)/)
 })
 

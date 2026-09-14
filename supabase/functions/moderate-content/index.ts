@@ -103,7 +103,21 @@ Deno.serve(async (request) => {
       clearTimeout(timeoutId)
     }
     if (!providerResponse.ok) {
-      await recordFailure('provider_failure')
+      const status = providerResponse.status
+      let errorType = 'unknown'
+      try {
+        const errBody = await providerResponse.clone().json()
+        if (
+          errBody && typeof errBody === 'object' &&
+          (errBody as Record<string, unknown>).error &&
+          typeof ((errBody as Record<string, unknown>).error as Record<string, unknown>).type === 'string'
+        ) {
+          errorType = String(((errBody as Record<string, unknown>).error as Record<string, unknown>).type).slice(0, 40)
+        }
+      } catch {
+        // body not JSON or unreadable; keep errorType as 'unknown'
+      }
+      await recordFailure(`provider_failure_${status}_${errorType}`)
       return json({ status: 'pending', error: 'provider_failure' }, 502)
     }
 

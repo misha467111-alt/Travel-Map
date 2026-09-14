@@ -241,6 +241,20 @@ class LocationsRepository {
       }
       rethrow;
     }
+
+    // Best-effort trigger for server-side moderation. The location already
+    // exists and is a successfully created 'pending' row at this point, so a
+    // failure here must not roll it back or surface as a creation error —
+    // the moderation pipeline is designed to leave unmoderated content
+    // safely 'pending' for retry rather than depend on this call succeeding.
+    try {
+      await _supabase.functions.invoke(
+        'moderate-content',
+        body: {'location_id': createdLocationId},
+      );
+    } catch (_) {
+      // Location remains 'pending'; moderation can be retried later.
+    }
   }
 
   Future<void> updateLocation({
