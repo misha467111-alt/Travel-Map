@@ -38,13 +38,15 @@ void main() {
         ownerId: 'me',
         startedAt: DateTime.utc(2026, 1, 1, 10),
       );
-      final events = await db.getRouteEvents(ownerId: 'me', recordedRouteId: 'r1');
+      final events =
+          await db.getRouteEvents(ownerId: 'me', recordedRouteId: 'r1');
       expect(events, hasLength(1));
       expect(events.single.eventType, RouteEventType.start);
       expect(events.single.seq, 1);
     });
 
-    test('throws ActiveRecordingExistsException for a second active route '
+    test(
+        'throws ActiveRecordingExistsException for a second active route '
         'under the same owner', () async {
       await db.createLocalRecordedRoute(
         id: 'r1',
@@ -61,7 +63,8 @@ void main() {
       );
     });
 
-    test('the partial unique index enforces this at the database level too, '
+    test(
+        'the partial unique index enforces this at the database level too, '
         'independent of the application-level check', () async {
       // Bypass createLocalRecordedRoute's own guard by inserting directly,
       // proving the constraint is real and not just app-level discipline.
@@ -118,7 +121,8 @@ void main() {
           recordedAt: DateTime.utc(2026, 1, 1, 10, i),
         );
       }
-      final points = await db.getRoutePoints(ownerId: 'me', recordedRouteId: 'r1');
+      final points =
+          await db.getRoutePoints(ownerId: 'me', recordedRouteId: 'r1');
       expect(points.map((p) => p.seq), [1, 2, 3]);
     });
 
@@ -171,13 +175,15 @@ void main() {
           longitude: 31.5,
           recordedAt: DateTime.utc(2026, 1, 1));
 
-      final r2Points = await db.getRoutePoints(ownerId: 'accountB', recordedRouteId: 'r2');
+      final r2Points =
+          await db.getRoutePoints(ownerId: 'accountB', recordedRouteId: 'r2');
       expect(r2Points.single.seq, 1);
     });
   });
 
   group('pause / resume transactions', () {
-    test('pause is atomic: status -> paused and a pause event appended together',
+    test(
+        'pause is atomic: status -> paused and a pause event appended together',
         () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1, 10));
@@ -187,21 +193,29 @@ void main() {
         occurredAt: DateTime.utc(2026, 1, 1, 10, 5),
       );
       final route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
-      final events = await db.getRouteEvents(ownerId: 'me', recordedRouteId: 'r1');
+      final events =
+          await db.getRouteEvents(ownerId: 'me', recordedRouteId: 'r1');
       expect(route!.status, RecordedRouteStatus.paused);
-      expect(events.map((e) => e.eventType), [RouteEventType.start, RouteEventType.pause]);
+      expect(events.map((e) => e.eventType),
+          [RouteEventType.start, RouteEventType.pause]);
     });
 
-    test('resume is atomic: status -> recording and a resume event appended together',
+    test(
+        'resume is atomic: status -> recording and a resume event appended together',
         () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1, 10));
       await db.pauseRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 10, 5));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 10, 5));
       await db.resumeRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 10, 8));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 10, 8));
       final route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
-      final events = await db.getRouteEvents(ownerId: 'me', recordedRouteId: 'r1');
+      final events =
+          await db.getRouteEvents(ownerId: 'me', recordedRouteId: 'r1');
       expect(route!.status, RecordedRouteStatus.recording);
       expect(events.map((e) => e.eventType),
           [RouteEventType.start, RouteEventType.pause, RouteEventType.resume]);
@@ -221,7 +235,8 @@ void main() {
         longitude: 30.5,
         recordedAt: DateTime.utc(2026, 1, 1, 10),
       );
-      final waypoints = await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
+      final waypoints =
+          await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
       expect(waypoints, hasLength(1));
     });
 
@@ -229,7 +244,9 @@ void main() {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.pauseRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 10));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 10));
       await db.addWaypoint(
         id: 'wp1',
         ownerId: 'me',
@@ -239,7 +256,8 @@ void main() {
         longitude: 30.5,
         recordedAt: DateTime.utc(2026, 1, 1, 10, 1),
       );
-      final waypoints = await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
+      final waypoints =
+          await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
       expect(waypoints, hasLength(1));
       expect(waypoints.single.waypointType, 'campsite');
     });
@@ -259,7 +277,8 @@ void main() {
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
       await db.updateWaypointMetadata(
           ownerId: 'me', id: 'wp1', title: const Value('Nice view'));
-      final waypoints = await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
+      final waypoints =
+          await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
       expect(waypoints.single.syncStatus, WaypointSyncStatus.pending);
       expect(waypoints.single.title, 'Nice view');
     });
@@ -277,7 +296,8 @@ void main() {
         recordedAt: DateTime.utc(2026, 1, 1),
       );
       await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
-      final waypoints = await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
+      final waypoints =
+          await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
       expect(waypoints, isEmpty);
     });
 
@@ -304,7 +324,8 @@ void main() {
       );
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
 
-      final unsynced = await db.getUnsyncedWaypoints(ownerId: 'me', recordedRouteId: 'r1');
+      final unsynced =
+          await db.getUnsyncedWaypoints(ownerId: 'me', recordedRouteId: 'r1');
       expect(unsynced.map((w) => w.id), ['wp2']);
     });
   });
@@ -329,19 +350,25 @@ void main() {
       );
     }
 
-    test('deleting a never-synced waypoint removes it safely (no tombstone left)',
+    test(
+        'deleting a never-synced waypoint removes it safely (no tombstone left)',
         () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       // syncStatus is 'pending' by default -- never confirmed synced.
       await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
 
-      expect(await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
       expect(
-          await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
+          await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
+      expect(
+          await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1'),
+          isEmpty);
     });
 
-    test('deleting a synced waypoint creates and preserves a tombstone', () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+    test('deleting a synced waypoint creates and preserves a tombstone',
+        () async {
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
       await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
 
@@ -352,14 +379,17 @@ void main() {
       expect(tombstones.single.syncStatus, WaypointSyncStatus.pendingDelete);
     });
 
-    test('deleting a waypoint whose last sync attempt failed also creates a '
+    test(
+        'deleting a waypoint whose last sync attempt failed also creates a '
         'tombstone (treated as "may have reached the server")', () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       // Simulate a failed sync attempt directly (no public API mutates a
       // waypoint straight to 'failed' yet -- that's a future sync-engine
       // concern -- so this writes the column directly for the test).
       await (db.update(db.localWaypoints)..where((t) => t.id.equals('wp1')))
-          .write(const LocalWaypointsCompanion(syncStatus: Value(WaypointSyncStatus.failed)));
+          .write(const LocalWaypointsCompanion(
+              syncStatus: Value(WaypointSyncStatus.failed)));
 
       await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
 
@@ -370,15 +400,18 @@ void main() {
 
     test('a normal waypoint query (getWaypoints) does not return a tombstone',
         () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
       await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
 
-      expect(await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
+      expect(
+          await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
     });
 
     test('watchWaypoints also excludes a tombstone', () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
 
       final emissions = <int>[];
@@ -393,9 +426,11 @@ void main() {
       await sub.cancel();
     });
 
-    test('a sync/deletion-oriented query (getTombstonedWaypoints) returns the tombstone',
+    test(
+        'a sync/deletion-oriented query (getTombstonedWaypoints) returns the tombstone',
         () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
       await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
 
@@ -405,7 +440,8 @@ void main() {
     });
 
     test('editing a tombstoned waypoint is rejected', () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
       await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
 
@@ -416,9 +452,11 @@ void main() {
       );
     });
 
-    test('markWaypointSynced rejects a tombstoned waypoint (must use '
+    test(
+        'markWaypointSynced rejects a tombstoned waypoint (must use '
         'purgeAcknowledgedTombstone instead)', () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
       await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
 
@@ -428,53 +466,65 @@ void main() {
       );
     });
 
-    test('purgeAcknowledgedTombstone physically removes an acknowledged tombstone',
+    test(
+        'purgeAcknowledgedTombstone physically removes an acknowledged tombstone',
         () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
       await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
 
       await db.purgeAcknowledgedTombstone(ownerId: 'me', id: 'wp1');
 
       expect(
-          await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
+          await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1'),
+          isEmpty);
     });
 
-    test('purgeAcknowledgedTombstone refuses to remove a non-tombstoned (live) waypoint',
+    test(
+        'purgeAcknowledgedTombstone refuses to remove a non-tombstoned (live) waypoint',
         () async {
-      await createRouteAndWaypoint(db, ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
 
       expect(
         () => db.purgeAcknowledgedTombstone(ownerId: 'me', id: 'wp1'),
         throwsA(isA<StateError>()),
       );
       // Still there, untouched.
-      expect(await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), hasLength(1));
+      expect(await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'),
+          hasLength(1));
     });
 
     test('account isolation applies to tombstones too', () async {
-      await createRouteAndWaypoint(db, ownerId: 'accountA', routeId: 'r1', waypointId: 'wp1');
+      await createRouteAndWaypoint(db,
+          ownerId: 'accountA', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'accountA', id: 'wp1');
       await db.deleteWaypoint(ownerId: 'accountA', id: 'wp1');
 
       // Account B cannot see account A's tombstone through any query.
       expect(
-          await db.getTombstonedWaypoints(ownerId: 'accountB', recordedRouteId: 'r1'),
+          await db.getTombstonedWaypoints(
+              ownerId: 'accountB', recordedRouteId: 'r1'),
           isEmpty);
-      expect(await db.getWaypoints(ownerId: 'accountB', recordedRouteId: 'r1'), isEmpty);
+      expect(await db.getWaypoints(ownerId: 'accountB', recordedRouteId: 'r1'),
+          isEmpty);
       // And account B cannot purge it either -- the ownerId-scoped WHERE
       // clause simply finds no matching row, so this is a silent no-op
       // rather than an error or a cross-account mutation.
       await db.purgeAcknowledgedTombstone(ownerId: 'accountB', id: 'wp1');
       expect(
-          await db.getTombstonedWaypoints(ownerId: 'accountA', recordedRouteId: 'r1'),
+          await db.getTombstonedWaypoints(
+              ownerId: 'accountA', recordedRouteId: 'r1'),
           hasLength(1),
-          reason: 'account B\'s no-op purge attempt must not affect account A\'s tombstone');
+          reason:
+              'account B\'s no-op purge attempt must not affect account A\'s tombstone');
     });
   });
 
   group('finish transaction', () {
-    test('appends a finish event, sets endedAt, and completes the route atomically',
+    test(
+        'appends a finish event, sets endedAt, and completes the route atomically',
         () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1, 10));
@@ -484,19 +534,25 @@ void main() {
         occurredAt: DateTime.utc(2026, 1, 1, 11),
       );
       final route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
-      final events = await db.getRouteEvents(ownerId: 'me', recordedRouteId: 'r1');
+      final events =
+          await db.getRouteEvents(ownerId: 'me', recordedRouteId: 'r1');
       expect(route!.status, RecordedRouteStatus.completed);
       expect(route.endedAt, DateTime.utc(2026, 1, 1, 11));
-      expect(events.map((e) => e.eventType), [RouteEventType.start, RouteEventType.finish]);
+      expect(events.map((e) => e.eventType),
+          [RouteEventType.start, RouteEventType.finish]);
     });
 
     test('can finish directly from paused', () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1, 10));
       await db.pauseRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 10, 30));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 10, 30));
       await db.finishRecordingLocally(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 11));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 11));
       final route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
       expect(route!.status, RecordedRouteStatus.completed);
     });
@@ -509,7 +565,8 @@ void main() {
       required String newStatus,
     }) {
       return expectLater(
-        db.updateRouteStatus(ownerId: 'me', routeId: routeId, newStatus: newStatus),
+        db.updateRouteStatus(
+            ownerId: 'me', routeId: routeId, newStatus: newStatus),
         throwsA(isA<InvalidRouteStatusTransition>()),
       );
     }
@@ -518,45 +575,60 @@ void main() {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.finishRecordingLocally(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 1));
-      await expectInvalid(db, routeId: 'r1', newStatus: RecordedRouteStatus.recording);
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 1));
+      await expectInvalid(db,
+          routeId: 'r1', newStatus: RecordedRouteStatus.recording);
     });
 
     test('completed -> paused is rejected', () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.finishRecordingLocally(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 1));
-      await expectInvalid(db, routeId: 'r1', newStatus: RecordedRouteStatus.paused);
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 1));
+      await expectInvalid(db,
+          routeId: 'r1', newStatus: RecordedRouteStatus.paused);
     });
 
     test('discarded -> recording is rejected', () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.discardRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 1));
-      await expectInvalid(db, routeId: 'r1', newStatus: RecordedRouteStatus.recording);
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 1));
+      await expectInvalid(db,
+          routeId: 'r1', newStatus: RecordedRouteStatus.recording);
     });
 
     test('discarded -> paused is rejected', () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.discardRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 1));
-      await expectInvalid(db, routeId: 'r1', newStatus: RecordedRouteStatus.paused);
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 1));
+      await expectInvalid(db,
+          routeId: 'r1', newStatus: RecordedRouteStatus.paused);
     });
 
     test('updateRouteStatus can never directly set completed', () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
-      await expectInvalid(db, routeId: 'r1', newStatus: RecordedRouteStatus.completed);
+      await expectInvalid(db,
+          routeId: 'r1', newStatus: RecordedRouteStatus.completed);
     });
 
     test('setting the same status again is a harmless no-op', () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.updateRouteStatus(
-          ownerId: 'me', routeId: 'r1', newStatus: RecordedRouteStatus.recording);
+          ownerId: 'me',
+          routeId: 'r1',
+          newStatus: RecordedRouteStatus.recording);
       final route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
       expect(route!.status, RecordedRouteStatus.recording);
     });
@@ -574,7 +646,9 @@ void main() {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.pauseRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 1));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 1));
       final recoverable = await db.getRecoverableRecording('me');
       expect(recoverable?.id, 'r1');
     });
@@ -583,7 +657,9 @@ void main() {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.finishRecordingLocally(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 1));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 1));
       final recoverable = await db.getRecoverableRecording('me');
       expect(recoverable, isNull);
     });
@@ -592,7 +668,9 @@ void main() {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.discardRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 1));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 1));
       final recoverable = await db.getRecoverableRecording('me');
       expect(recoverable, isNull);
     });
@@ -626,8 +704,10 @@ void main() {
 
       expect(await db.getRecordedRoute(ownerId: 'accountB', id: 'r1'), isNull);
       expect(
-          await db.getRoutePoints(ownerId: 'accountB', recordedRouteId: 'r1'), isEmpty);
-      expect(await db.getWaypoints(ownerId: 'accountB', recordedRouteId: 'r1'), isEmpty);
+          await db.getRoutePoints(ownerId: 'accountB', recordedRouteId: 'r1'),
+          isEmpty);
+      expect(await db.getWaypoints(ownerId: 'accountB', recordedRouteId: 'r1'),
+          isEmpty);
       expect(await db.getRecoverableRecording('accountB'), isNull);
     });
   });
@@ -636,16 +716,19 @@ void main() {
     test('point sync cursor advances monotonically', () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
-      await db.advancePointSyncCursor(ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 5);
+      await db.advancePointSyncCursor(
+          ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 5);
       var route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
       expect(route!.lastSyncedPointSeq, 5);
 
       // A smaller/equal value never regresses the cursor.
-      await db.advancePointSyncCursor(ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 3);
+      await db.advancePointSyncCursor(
+          ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 3);
       route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
       expect(route!.lastSyncedPointSeq, 5);
 
-      await db.advancePointSyncCursor(ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 9);
+      await db.advancePointSyncCursor(
+          ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 9);
       route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
       expect(route!.lastSyncedPointSeq, 9);
     });
@@ -653,7 +736,8 @@ void main() {
     test('event sync cursor advances monotonically', () async {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
-      await db.advanceEventSyncCursor(ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 2);
+      await db.advanceEventSyncCursor(
+          ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 2);
       final route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
       expect(route!.lastSyncedEventSeq, 2);
     });
@@ -670,10 +754,11 @@ void main() {
           recordedAt: DateTime.utc(2026, 1, 1, 10, i),
         );
       }
-      await db.advancePointSyncCursor(ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 2);
+      await db.advancePointSyncCursor(
+          ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 2);
 
-      final batch =
-          await db.getUnsyncedPointBatch(ownerId: 'me', recordedRouteId: 'r1', batchSize: 10);
+      final batch = await db.getUnsyncedPointBatch(
+          ownerId: 'me', recordedRouteId: 'r1', batchSize: 10);
       expect(batch.map((p) => p.seq), [3, 4, 5]);
     });
 
@@ -689,8 +774,8 @@ void main() {
           recordedAt: DateTime.utc(2026, 1, 1, 10, i),
         );
       }
-      final batch =
-          await db.getUnsyncedPointBatch(ownerId: 'me', recordedRouteId: 'r1', batchSize: 2);
+      final batch = await db.getUnsyncedPointBatch(
+          ownerId: 'me', recordedRouteId: 'r1', batchSize: 2);
       expect(batch.map((p) => p.seq), [1, 2]);
     });
 
@@ -698,21 +783,29 @@ void main() {
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
       await db.pauseRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 1));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 1));
       await db.resumeRecording(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 2));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 2));
       // 3 events total: start(1), pause(2), resume(3).
-      await db.advanceEventSyncCursor(ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 1);
-      final batch =
-          await db.getUnsyncedEventBatch(ownerId: 'me', recordedRouteId: 'r1', batchSize: 10);
-      expect(batch.map((e) => e.eventType), [RouteEventType.pause, RouteEventType.resume]);
+      await db.advanceEventSyncCursor(
+          ownerId: 'me', recordedRouteId: 'r1', newLastSyncedSeq: 1);
+      final batch = await db.getUnsyncedEventBatch(
+          ownerId: 'me', recordedRouteId: 'r1', batchSize: 10);
+      expect(batch.map((e) => e.eventType),
+          [RouteEventType.pause, RouteEventType.resume]);
     });
   });
 
   group('reactive queries', () {
-    test('watchActiveRecordedRoute emits null then the created route', () async {
+    test('watchActiveRecordedRoute emits null then the created route',
+        () async {
       final emissions = <String?>[];
-      final sub = db.watchActiveRecordedRoute('me').listen((r) => emissions.add(r?.id));
+      final sub =
+          db.watchActiveRecordedRoute('me').listen((r) => emissions.add(r?.id));
       await pumpEventQueue();
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
@@ -725,10 +818,13 @@ void main() {
       final emissions = <String?>[];
       await db.createLocalRecordedRoute(
           id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
-      final sub = db.watchActiveRecordedRoute('me').listen((r) => emissions.add(r?.id));
+      final sub =
+          db.watchActiveRecordedRoute('me').listen((r) => emissions.add(r?.id));
       await pumpEventQueue();
       await db.finishRecordingLocally(
-          ownerId: 'me', routeId: 'r1', occurredAt: DateTime.utc(2026, 1, 1, 1));
+          ownerId: 'me',
+          routeId: 'r1',
+          occurredAt: DateTime.utc(2026, 1, 1, 1));
       await pumpEventQueue();
       expect(emissions, ['r1', null]);
       await sub.cancel();

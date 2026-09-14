@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../controllers/profile_controller.dart';
 import '../../chat/local/chat_local_database_provider.dart';
 import '../../gps/local/gps_local_database_provider.dart';
+import '../../gps/presentation/gps_recording_debug_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -15,6 +16,9 @@ class SettingsScreen extends ConsumerWidget {
           offlineMode: profileController.isOfflineMode,
           onOfflineChanged: profileController.setOfflineMode,
           onLogout: () => _logout(context, ref),
+          onOpenGpsDebug: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const GpsRecordingDebugScreen()),
+          ),
         ),
       );
 
@@ -40,12 +44,18 @@ class SettingsPage extends StatelessWidget {
     required this.offlineMode,
     required this.onOfflineChanged,
     required this.onLogout,
+    this.onOpenGpsDebug,
     super.key,
   });
 
   final bool offlineMode;
   final ValueChanged<bool> onOfflineChanged;
   final VoidCallback onLogout;
+
+  /// GPS-3's minimal developer/test surface entry point. Nullable so
+  /// existing tests constructing SettingsPage directly (without this
+  /// callback) keep working unchanged.
+  final VoidCallback? onOpenGpsDebug;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -103,6 +113,23 @@ class SettingsPage extends StatelessWidget {
                   ),
                 ],
               ),
+              if (onOpenGpsDebug != null)
+                SettingsSection(
+                  title: 'РОЗРОБКА',
+                  children: [
+                    ListTile(
+                      key: const Key('settings_gps_debug'),
+                      dense: true,
+                      visualDensity: const VisualDensity(vertical: -3),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 10),
+                      leading: const Icon(Icons.gps_fixed),
+                      title: const Text('GPS запис (debug)'),
+                      subtitle: const Text('Тестовий екран для GPS-3.'),
+                      onTap: onOpenGpsDebug,
+                    ),
+                  ],
+                ),
               SettingsSection(
                 title: 'ОБЛІКОВИЙ ЗАПИС',
                 children: [

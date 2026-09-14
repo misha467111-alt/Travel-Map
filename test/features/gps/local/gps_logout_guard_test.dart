@@ -71,7 +71,8 @@ void main() {
     expect(blockingId, isNull);
   });
 
-  test('the guard never deletes, finishes, or discards the blocking route itself',
+  test(
+      'the guard never deletes, finishes, or discards the blocking route itself',
       () async {
     await db.createLocalRecordedRoute(
         id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
@@ -83,7 +84,8 @@ void main() {
         reason: 'the guard must only report, never mutate, the recording');
   });
 
-  test('account isolation: an active recording under a different account '
+  test(
+      'account isolation: an active recording under a different account '
       'never blocks this account\'s logout', () async {
     await db.createLocalRecordedRoute(
         id: 'r1', ownerId: 'accountA', startedAt: DateTime.utc(2026, 1, 1));

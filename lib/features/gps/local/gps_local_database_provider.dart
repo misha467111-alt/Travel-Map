@@ -39,7 +39,8 @@ final gpsLocalDatabaseProvider = Provider<GpsLocalDatabase>((ref) {
 /// Returns the id of that account's recording/paused local route if one
 /// exists (logout must be blocked), or `null` if logout may proceed. A
 /// null [userId] (no session) never blocks — there is nothing to guard.
-Future<String?> blockingActiveRecordingIdFor(GpsLocalDatabase db, String? userId) async {
+Future<String?> blockingActiveRecordingIdFor(
+    GpsLocalDatabase db, String? userId) async {
   if (userId == null) return null;
   final recording = await db.getRecoverableRecording(userId);
   return recording?.id;
@@ -55,5 +56,6 @@ Future<String?> blockingActiveRecordingIdFor(GpsLocalDatabase db, String? userId
 /// function rather than each re-implementing the query itself.
 Future<String?> blockingActiveRecordingId(WidgetRef ref) {
   final userId = Supabase.instance.client.auth.currentUser?.id;
-  return blockingActiveRecordingIdFor(ref.read(gpsLocalDatabaseProvider), userId);
+  return blockingActiveRecordingIdFor(
+      ref.read(gpsLocalDatabaseProvider), userId);
 }

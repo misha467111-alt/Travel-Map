@@ -116,7 +116,8 @@ class LocalRecordedRoutes extends Table {
   TextColumn get ownerId => text()();
   TextColumn get tripId => text().nullable()();
   TextColumn get title => text().nullable()();
-  TextColumn get transportMode => text().withDefault(const Constant('walking'))();
+  TextColumn get transportMode =>
+      text().withDefault(const Constant('walking'))();
   TextColumn get status =>
       text().withDefault(const Constant(RecordedRouteStatus.recording))();
   TextColumn get visibility => text().withDefault(const Constant('private'))();
@@ -228,10 +229,16 @@ class LocalRouteEvents extends Table {
 }
 
 @DriftDatabase(
-  tables: [LocalRecordedRoutes, LocalRoutePoints, LocalWaypoints, LocalRouteEvents],
+  tables: [
+    LocalRecordedRoutes,
+    LocalRoutePoints,
+    LocalWaypoints,
+    LocalRouteEvents
+  ],
 )
 class GpsLocalDatabase extends _$GpsLocalDatabase {
-  GpsLocalDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
+  GpsLocalDatabase([QueryExecutor? executor])
+      : super(executor ?? _openConnection());
 
   /// Test-only convenience constructor for an in-memory database — same
   /// pattern as ChatLocalDatabase.forTesting. The default constructor
@@ -325,7 +332,8 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
         occurredAt: startedAt,
       );
       return _normalizeRoute(
-        await (select(localRecordedRoutes)..where((t) => t.id.equals(id))).getSingle(),
+        await (select(localRecordedRoutes)..where((t) => t.id.equals(id)))
+            .getSingle(),
       );
     });
   }
@@ -346,16 +354,20 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   }) {
     final query = select(localRecordedRoutes)
       ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id));
-    return query.watchSingleOrNull().map((row) => row == null ? null : _normalizeRoute(row));
+    return query
+        .watchSingleOrNull()
+        .map((row) => row == null ? null : _normalizeRoute(row));
   }
 
-  SimpleSelectStatement<$LocalRecordedRoutesTable, LocalRecordedRoute> _activeRouteQuery(
+  SimpleSelectStatement<$LocalRecordedRoutesTable, LocalRecordedRoute>
+      _activeRouteQuery(
     String ownerId,
   ) {
     return select(localRecordedRoutes)
       ..where((t) =>
           t.ownerId.equals(ownerId) &
-          t.status.isIn([RecordedRouteStatus.recording, RecordedRouteStatus.paused]));
+          t.status.isIn(
+              [RecordedRouteStatus.recording, RecordedRouteStatus.paused]));
   }
 
   /// The one recording/paused route for this owner, if any — reactive.
@@ -396,9 +408,11 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
 
     final allowed = switch (current.status) {
       RecordedRouteStatus.recording =>
-        newStatus == RecordedRouteStatus.paused || newStatus == RecordedRouteStatus.discarded,
+        newStatus == RecordedRouteStatus.paused ||
+            newStatus == RecordedRouteStatus.discarded,
       RecordedRouteStatus.paused =>
-        newStatus == RecordedRouteStatus.recording || newStatus == RecordedRouteStatus.discarded,
+        newStatus == RecordedRouteStatus.recording ||
+            newStatus == RecordedRouteStatus.discarded,
       _ => false,
     };
     if (!allowed) {
@@ -496,7 +510,8 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
       }
       if (current.status != RecordedRouteStatus.recording &&
           current.status != RecordedRouteStatus.paused) {
-        throw InvalidRouteStatusTransition(current.status, RecordedRouteStatus.completed);
+        throw InvalidRouteStatusTransition(
+            current.status, RecordedRouteStatus.completed);
       }
 
       await _appendEventUnguarded(
@@ -569,7 +584,9 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     required String recordedRouteId,
   }) async {
     final rows = await (select(localRoutePoints)
-          ..where((t) => t.ownerId.equals(ownerId) & t.recordedRouteId.equals(recordedRouteId))
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId))
           ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
         .get();
     return rows.map(_normalizePoint).toList(growable: false);
@@ -580,9 +597,12 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     required String recordedRouteId,
   }) {
     final query = select(localRoutePoints)
-      ..where((t) => t.ownerId.equals(ownerId) & t.recordedRouteId.equals(recordedRouteId))
+      ..where((t) =>
+          t.ownerId.equals(ownerId) & t.recordedRouteId.equals(recordedRouteId))
       ..orderBy([(t) => OrderingTerm.asc(t.seq)]);
-    return query.watch().map((rows) => rows.map(_normalizePoint).toList(growable: false));
+    return query
+        .watch()
+        .map((rows) => rows.map(_normalizePoint).toList(growable: false));
   }
 
   /// Points with seq greater than this route's current
@@ -616,11 +636,13 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   }) async {
     final route = await getRecordedRoute(ownerId: ownerId, id: recordedRouteId);
     if (route == null) return;
-    if (route.lastSyncedPointSeq != null && newLastSyncedSeq <= route.lastSyncedPointSeq!) {
+    if (route.lastSyncedPointSeq != null &&
+        newLastSyncedSeq <= route.lastSyncedPointSeq!) {
       return;
     }
     await (update(localRecordedRoutes)
-          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(recordedRouteId)))
+          ..where(
+              (t) => t.ownerId.equals(ownerId) & t.id.equals(recordedRouteId)))
         .write(LocalRecordedRoutesCompanion(
       lastSyncedPointSeq: Value(newLastSyncedSeq),
       updatedAt: Value(DateTime.now().toUtc()),
@@ -677,7 +699,9 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     required String recordedRouteId,
   }) async {
     final rows = await (select(localRouteEvents)
-          ..where((t) => t.ownerId.equals(ownerId) & t.recordedRouteId.equals(recordedRouteId))
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId))
           ..orderBy([(t) => OrderingTerm.asc(t.seq)]))
         .get();
     return rows.map(_normalizeEvent).toList(growable: false);
@@ -708,11 +732,13 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   }) async {
     final route = await getRecordedRoute(ownerId: ownerId, id: recordedRouteId);
     if (route == null) return;
-    if (route.lastSyncedEventSeq != null && newLastSyncedSeq <= route.lastSyncedEventSeq!) {
+    if (route.lastSyncedEventSeq != null &&
+        newLastSyncedSeq <= route.lastSyncedEventSeq!) {
       return;
     }
     await (update(localRecordedRoutes)
-          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(recordedRouteId)))
+          ..where(
+              (t) => t.ownerId.equals(ownerId) & t.id.equals(recordedRouteId)))
         .write(LocalRecordedRoutesCompanion(
       lastSyncedEventSeq: Value(newLastSyncedSeq),
       updatedAt: Value(DateTime.now().toUtc()),
@@ -802,7 +828,8 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
       throw WaypointTombstonedException(id);
     }
 
-    await (update(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+    await (update(localWaypoints)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
         .write(LocalWaypointsCompanion(
       title: title,
       note: note,
@@ -832,19 +859,22 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   /// [purgeAcknowledgedTombstone] to physically remove it once the
   /// server has confirmed the deletion — never call that from general
   /// app code before that confirmation exists.
-  Future<void> deleteWaypoint({required String ownerId, required String id}) async {
+  Future<void> deleteWaypoint(
+      {required String ownerId, required String id}) async {
     final row = await (select(localWaypoints)
           ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
         .getSingleOrNull();
     if (row == null) return;
 
     if (row.syncStatus == WaypointSyncStatus.pending) {
-      await (delete(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+      await (delete(localWaypoints)
+            ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
           .go();
       return;
     }
 
-    await (update(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+    await (update(localWaypoints)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
         .write(LocalWaypointsCompanion(
       syncStatus: const Value(WaypointSyncStatus.pendingDelete),
       updatedAt: Value(DateTime.now().toUtc()),
@@ -878,7 +908,9 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
           t.recordedRouteId.equals(recordedRouteId) &
           t.syncStatus.equals(WaypointSyncStatus.pendingDelete).not())
       ..orderBy([(t) => OrderingTerm.asc(t.recordedAt)]);
-    return query.watch().map((rows) => rows.map(_normalizeWaypoint).toList(growable: false));
+    return query
+        .watch()
+        .map((rows) => rows.map(_normalizeWaypoint).toList(growable: false));
   }
 
   /// Waypoints needing a create/update push — a sync-oriented query;
@@ -918,7 +950,8 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   /// [purgeAcknowledgedTombstone] instead, never this method, which
   /// would otherwise silently resurrect a pending-delete row as a live
   /// 'synced' waypoint.
-  Future<void> markWaypointSynced({required String ownerId, required String id}) async {
+  Future<void> markWaypointSynced(
+      {required String ownerId, required String id}) async {
     final row = await (select(localWaypoints)
           ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
         .getSingleOrNull();
@@ -927,8 +960,10 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
       throw StateError(
           'markWaypointSynced called on tombstoned waypoint $id — use purgeAcknowledgedTombstone instead');
     }
-    await (update(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
-        .write(const LocalWaypointsCompanion(syncStatus: Value(WaypointSyncStatus.synced)));
+    await (update(localWaypoints)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+        .write(const LocalWaypointsCompanion(
+            syncStatus: Value(WaypointSyncStatus.synced)));
   }
 
   /// Physically removes a tombstoned waypoint row. Must only be called
@@ -937,7 +972,8 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   /// never as a substitute for [deleteWaypoint]. Throws if the row
   /// isn't actually a tombstone, to catch a caller bug rather than
   /// silently deleting a live waypoint.
-  Future<void> purgeAcknowledgedTombstone({required String ownerId, required String id}) async {
+  Future<void> purgeAcknowledgedTombstone(
+      {required String ownerId, required String id}) async {
     final row = await (select(localWaypoints)
           ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
         .getSingleOrNull();
@@ -946,7 +982,8 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
       throw StateError(
           'purgeAcknowledgedTombstone called on a non-tombstoned waypoint $id (syncStatus=${row.syncStatus})');
     }
-    await (delete(localWaypoints)..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+    await (delete(localWaypoints)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
         .go();
   }
 }
