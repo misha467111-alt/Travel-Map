@@ -37,6 +37,14 @@ void main() {
   /// stream listener callbacks) to complete before assertions run.
   Future<void> settle() => pumpEventQueue();
 
+  group('state stream', () {
+    test('immediately emits idle when no recording is recoverable', () async {
+      final initial = await controller.stateStream.first;
+
+      expect(initial, GpsRecordingState.idle);
+    });
+  });
+
   group('start', () {
     test(
         'with permission granted transitions to recording and creates the '

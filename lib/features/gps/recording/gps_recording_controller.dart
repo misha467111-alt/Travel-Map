@@ -59,7 +59,23 @@ class GpsRecordingController with WidgetsBindingObserver {
 
   final _stateController = StreamController<GpsRecordingState>.broadcast();
   GpsRecordingState _state = GpsRecordingState.idle;
-  Stream<GpsRecordingState> get stateStream => _stateController.stream;
+  /// Emits the current state immediately for each UI subscriber, then all
+  /// subsequent transitions. A raw broadcast controller has no replay, so
+  /// exposing it directly leaves a [StreamProvider] permanently loading when
+  /// a new controller finds no recoverable recording and therefore emits no
+  /// transition during construction.
+  Stream<GpsRecordingState> get stateStream => Stream<GpsRecordingState>.multi(
+        (listener) {
+          listener.add(_state);
+          final subscription = _stateController.stream.listen(
+            listener.add,
+            onError: listener.addError,
+            onDone: listener.close,
+          );
+          listener.onCancel = subscription.cancel;
+        },
+        isBroadcast: true,
+      );
   GpsRecordingState get state => _state;
 
   StreamSubscription<Position>? _positionSub;
