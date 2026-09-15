@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'controllers/profile_controller.dart';
 import 'core/config/app_config.dart';
+import 'core/config/ios_google_maps_bridge.dart';
 import 'core/theme/app_design.dart';
 import 'screens/auth_screens.dart';
 import 'features/friends/presentation/friends_screen.dart';
@@ -35,6 +36,7 @@ class _AppBootstrapState extends State<_AppBootstrap> {
 
   Future<void> _initialize() async {
     AppConfig.validate();
+    await configureIosGoogleMapsApiKey(AppConfig.googleMapsIosApiKey);
 
     await Supabase.initialize(
       url: AppConfig.supabaseUrl,
