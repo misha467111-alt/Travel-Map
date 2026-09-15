@@ -59,6 +59,7 @@ class GpsRecordingController with WidgetsBindingObserver {
 
   final _stateController = StreamController<GpsRecordingState>.broadcast();
   GpsRecordingState _state = GpsRecordingState.idle;
+
   /// Emits the current state immediately for each UI subscriber, then all
   /// subsequent transitions. A raw broadcast controller has no replay, so
   /// exposing it directly leaves a [StreamProvider] permanently loading when

@@ -65,17 +65,16 @@ ValidatedGpsSample? validateGpsSample(Position position) {
     latitude: lat,
     longitude: lng,
     recordedAt: position.timestamp.toUtc(),
-    altitude:
-        finiteMeasuredOrNull(position.hasAltitude, position.altitude),
+    altitude: finiteMeasuredOrNull(position.hasAltitude, position.altitude),
     horizontalAccuracy:
         finiteMeasuredOrNull(position.hasAccuracy, position.accuracy),
-    verticalAccuracy:
-        finiteMeasuredOrNull(position.hasAltitudeAccuracy, position.altitudeAccuracy),
+    verticalAccuracy: finiteMeasuredOrNull(
+        position.hasAltitudeAccuracy, position.altitudeAccuracy),
     speed: finiteMeasuredOrNull(position.hasSpeed, position.speed),
     speedAccuracy:
         finiteMeasuredOrNull(position.hasSpeedAccuracy, position.speedAccuracy),
     heading: finiteMeasuredOrNull(position.hasHeading, position.heading),
-    headingAccuracy:
-        finiteMeasuredOrNull(position.hasHeadingAccuracy, position.headingAccuracy),
+    headingAccuracy: finiteMeasuredOrNull(
+        position.hasHeadingAccuracy, position.headingAccuracy),
   );
 }
