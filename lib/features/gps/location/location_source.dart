@@ -52,27 +52,41 @@ class GeolocatorLocationSource implements LocationSource {
       Geolocator.getServiceStatusStream();
 }
 
-/// GPS-3's centralized, foreground-only sampling configuration —
-/// exactly the fields confirmed to exist on AndroidSettings/AppleSettings
-/// in the installed geolocator version, nothing invented.
+/// GPS's centralized sampling configuration — exactly the fields
+/// confirmed to exist on AndroidSettings/AppleSettings/
+/// ForegroundNotificationConfig in the installed geolocator version,
+/// nothing invented.
 ///
 /// Kept as one place so a later phase can tune per transport mode
 /// without hunting through the recording controller for scattered
 /// magic numbers.
 ///
-/// Deliberately foreground-only, explicitly documented at each point
-/// that could silently turn this into a background configuration:
-///   - Android: `foregroundNotificationConfig` is left null. Setting it
-///     is what turns this into a foreground *service* with a
-///     persistent notification (GPS-4 territory) — omitting it keeps
-///     sampling tied to the normal activity lifecycle only.
-///   - iOS: `allowBackgroundLocationUpdates` is explicitly set to
+/// Platform background behavior (GPS-4B2, Android only):
+///   - Android: [_androidRecordingNotification] is always attached.
+///     Setting `AndroidSettings.foregroundNotificationConfig` is what
+///     starts the position stream as an Android foreground service
+///     (confirmed by reading geolocator_android 4.6.2's own native
+///     source: a non-null config makes `StreamHandlerImpl.onListen`
+///     call `GeolocatorLocationService.enableBackgroundMode`, which
+///     calls the real `startForeground()` — not just a priority hint).
+///     `forCurrentPlatform()` is only ever called by
+///     `GpsRecordingController` for an actual, explicitly-started
+///     recording session (see its class doc), so there is no other
+///     caller that would need a non-backgrounded variant — this is
+///     deliberately unconditional, not a parameter, per the "one
+///     recording engine" rule (GPS-4A/GPS-4B1): foreground and
+///     background are two OS-level execution states of the exact same
+///     subscription, not two configurations an app-level caller picks
+///     between.
+///   - iOS: unchanged from GPS-3/GPS-4B1 and **must stay that way**
+///     until GPS-4B4 — `allowBackgroundLocationUpdates` is explicitly
 ///     `false` (its own default in AppleSettings is actually `true` —
 ///     confirmed by reading the geolocator_apple source, not assumed —
 ///     so leaving it unset here would have been a real foreground-only
-///     violation). `Info.plist` also has no `UIBackgroundModes` entry,
-///     so this would likely no-op at the OS level regardless, but this
-///     phase does not rely on that as its safety net.
+///     violation). `Info.plist` still has no `UIBackgroundModes` entry
+///     (GPS-4B2 does not touch it), so this would likely no-op at the
+///     OS level regardless, but this phase does not rely on that as
+///     its safety net.
 class GpsSamplingSettings {
   const GpsSamplingSettings._();
 
@@ -84,6 +98,34 @@ class GpsSamplingSettings {
   static const int distanceFilterMeters = 4;
 
   static const Duration intervalDuration = Duration(seconds: 3);
+
+  /// The persistent notification shown for the entire duration of an
+  /// active recording — required by Android for a location-type
+  /// foreground service, and by GPS-4B2's own privacy requirement that
+  /// background location is always honestly, visibly disclosed while
+  /// it runs (never hidden). `notificationIcon` is left at its default
+  /// (`@mipmap/ic_launcher`), which already exists as this app's launcher
+  /// icon, so no new drawable resource is required.
+  ///
+  /// `enableWakeLock: true` is a deliberate choice, not the plugin's
+  /// default (`false`): `ForegroundNotificationConfig.enableWakeLock`'s
+  /// own doc states that without it "the system can still sleep and all
+  /// location events will be received at once when the system wakes up
+  /// again" — i.e. omitting it risks exactly the batched/delayed
+  /// delivery GPS-4B2's product requirement ("route continues
+  /// recording... points continue being written to Drift" while the
+  /// screen is locked) explicitly rules out. `enableWifiLock` is left at
+  /// its default `false` — GPS sampling has no need to keep Wi-Fi radio
+  /// awake, and the task explicitly calls out not enabling unnecessary
+  /// Wi-Fi locks.
+  static const ForegroundNotificationConfig _androidRecordingNotification =
+      ForegroundNotificationConfig(
+    notificationTitle: 'Travel Map',
+    notificationText: 'Записується ваш маршрут',
+    notificationChannelName: 'Запис маршруту',
+    setOngoing: true,
+    enableWakeLock: true,
+  );
 
   /// Picks the platform-specific settings subclass geolocator expects —
   /// matches the pattern geolocator's own documentation/examples use
@@ -106,9 +148,7 @@ class GpsSamplingSettings {
           accuracy: accuracy,
           distanceFilter: distanceFilterMeters,
           intervalDuration: intervalDuration,
-          // Explicitly omitted: foregroundNotificationConfig. Setting
-          // this is what starts an Android foreground service — GPS-4,
-          // not now.
+          foregroundNotificationConfig: _androidRecordingNotification,
         );
     }
   }

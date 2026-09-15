@@ -4,6 +4,17 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- GPS-4B2: lets the active-recording position stream keep running as
+         an Android foreground service (geolocator_android's own
+         GeolocatorLocationService, foregroundServiceType="location") while
+         Travel Map is backgrounded or the screen is locked. Deliberately
+         NOT ACCESS_BACKGROUND_LOCATION: the service is always created while
+         the app is in the foreground, as a direct result of the user
+         tapping Start -- confirmed against current Android developer
+         documentation that this is exactly the case ACCESS_BACKGROUND_LOCATION
+         is NOT required for (see the GPS-4A architecture report). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission

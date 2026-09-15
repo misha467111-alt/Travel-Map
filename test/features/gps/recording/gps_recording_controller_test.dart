@@ -509,29 +509,36 @@ void main() {
     });
   });
 
-  group('app lifecycle (foreground-only)', () {
+  group('app lifecycle (GPS-4B2 background continuity)', () {
     test(
-        'backgrounding while recording suspends the stream without changing '
-        'the local route status', () async {
+        'TEST A -- an active recording is not suspended when the app is '
+        'backgrounded (paused or detached), because the Android foreground '
+        'service is what keeps the same stream alive, not this class',
+        () async {
       await controller.start();
       await settle();
       final routeId = controller.state.routeId!;
 
       controller.didChangeAppLifecycleState(AppLifecycleState.paused);
       await settle();
+      expect(source.activeSubscriptionCount, 1);
 
-      expect(source.activeSubscriptionCount, 0);
+      controller.didChangeAppLifecycleState(AppLifecycleState.detached);
+      await settle();
+      expect(source.activeSubscriptionCount, 1);
+
       final route = await db.getRecordedRoute(ownerId: 'me', id: routeId);
       expect(route!.status, RecordedRouteStatus.recording,
-          reason: 'backgrounding must not touch local status, only the stream');
+          reason: 'backgrounding must not touch local status either');
     });
 
     test(
-        'returning to foreground in the same session resumes sampling '
-        'automatically (same session, never explicitly paused)', () async {
+        'TEST B -- returning to foreground while still recording does not '
+        'create a duplicate subscription', () async {
       await controller.start();
       await settle();
       final routeId = controller.state.routeId!;
+      expect(source.subscribeCallCount, 1);
 
       controller.didChangeAppLifecycleState(AppLifecycleState.paused);
       await settle();
@@ -539,6 +546,12 @@ void main() {
       await settle();
 
       expect(source.activeSubscriptionCount, 1);
+      expect(source.subscribeCallCount, 1,
+          reason: 'the same subscription must survive the round trip, not '
+              'be torn down and recreated');
+
+      // the one subscription that survived is still the live one -- a
+      // point emitted now is still accepted on the same route.
       source.emitPosition(testPosition());
       await settle();
       final points =
@@ -547,31 +560,50 @@ void main() {
     });
 
     test(
-        'does not auto-resume the stream if the user had explicitly paused '
-        'before backgrounding', () async {
+        'a paused recording has no subscription regardless of app '
+        'lifecycle, and no lifecycle transition ever creates one', () async {
       await controller.start();
       await settle();
       await controller.pause();
       await settle();
+      expect(source.activeSubscriptionCount, 0);
 
       controller.didChangeAppLifecycleState(AppLifecycleState.paused);
       await settle();
       controller.didChangeAppLifecycleState(AppLifecycleState.resumed);
       await settle();
 
-      expect(controller.state.status, GpsRecordingStatus.paused);
+      expect(controller.state.status, GpsRecordingStatus.paused,
+          reason: 'only an explicit resume() call may restart sampling');
       expect(source.activeSubscriptionCount, 0);
     });
 
-    test('inactive (brief, e.g. a system dialog) does not suspend the stream',
+    test('inactive/hidden while recording do not affect the subscription',
         () async {
       await controller.start();
       await settle();
 
       controller.didChangeAppLifecycleState(AppLifecycleState.inactive);
       await settle();
+      controller.didChangeAppLifecycleState(AppLifecycleState.hidden);
+      await settle();
 
       expect(source.activeSubscriptionCount, 1);
+    });
+
+    test(
+        'TEST G -- with no active recording, no lifecycle transition ever '
+        'creates a subscription', () async {
+      for (final lifecycleState in AppLifecycleState.values) {
+        controller.didChangeAppLifecycleState(lifecycleState);
+        await settle();
+      }
+
+      expect(controller.state.status, GpsRecordingStatus.idle);
+      expect(source.subscribeCallCount, 0,
+          reason: 'no background GPS subscription may exist without an '
+              'explicitly started recording');
+      expect(source.activeSubscriptionCount, 0);
     });
   });
 }

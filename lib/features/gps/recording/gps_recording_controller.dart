@@ -89,11 +89,6 @@ class GpsRecordingController with WidgetsBindingObserver {
 
   StreamSubscription<Position>? _positionSub;
 
-  /// Set only while actively recording and the app is backgrounded — see
-  /// [didChangeAppLifecycleState] for the exact, deliberately-limited
-  /// auto-resume rule this drives.
-  bool _streamSuspendedByBackground = false;
-
   bool _disposed = false;
 
   /// Read-only observability seam (GPS-4B1): [WidgetsBinding] exposes no
@@ -478,53 +473,43 @@ class GpsRecordingController with WidgetsBindingObserver {
   }
 
   // ---------------------------------------------------------------------
-  // App lifecycle (task 13)
+  // App lifecycle (GPS-4B2)
   // ---------------------------------------------------------------------
 
-  /// Foreground-only, deliberate rule (GPS-3 has no background
-  /// recording at all — that is GPS-4):
-  ///   - `paused`/`detached` (properly backgrounded or about to be
-  ///     destroyed): if actively recording, cancel the position
-  ///     subscription so it stops silently accumulating writes nobody
-  ///     asked for -- the local route stays exactly as it was ('recording'
-  ///     in the DB), so it remains recoverable, but no new points are
-  ///     written for time spent backgrounded. `inactive` is deliberately
-  ///     NOT treated the same way -- it fires for very brief, often
-  ///     reversible interruptions (a system dialog, the notification
-  ///     shade), and suspending/resuming the stream on every one of
-  ///     those would be noisy and pointless.
-  ///   - `resumed`: only if this controller instance is still alive (the
-  ///     process was never killed -- a full kill is instead handled by
-  ///     [_detectRecoverableRecording] on the next cold start) AND the
-  ///     in-memory status is still 'recording' (never touched by an
-  ///     explicit user pause, which already stops the stream through a
-  ///     separate path and flips status to 'paused') AND the suspension
-  ///     was this class's own doing, the subscription is silently
-  ///     restarted. This is not "inventing points for time spent in
-  ///     background" -- no synthetic backfill happens, sampling simply
-  ///     continues from now, exactly as a live stream naturally would.
-  ///     It is also not resuming a user-paused session -- that requires
-  ///     the explicit [resume] call.
+  /// GPS-4B2, deliberately changed from GPS-3/GPS-4B1's foreground-only
+  /// rule: while actively recording, no app-lifecycle transition touches
+  /// [_positionSub] at all, in either direction.
+  ///
+  /// On Android, every subscription created for an active recording is
+  /// already started with `foregroundNotificationConfig` set (see
+  /// [GpsSamplingSettings]), which is what legitimately keeps the same
+  /// stream delivering updates while the app is backgrounded or the
+  /// screen is locked — the OS foreground service is the thing that
+  /// survives backgrounding, not any Dart-side suspend/resume dance, so
+  /// there is nothing left for this method to suspend or restart.
+  /// Reintroducing a cancel-on-background/resubscribe-on-foreground step
+  /// here (GPS-3/GPS-4B1's old behavior) would just tear down and
+  /// immediately recreate the same subscription for no reason, and risks
+  /// a real seq/duplicate-subscription bug for no benefit.
+  ///
+  /// On iOS, `allowBackgroundLocationUpdates` is still `false` (GPS-4B2
+  /// is Android-only — see [GpsSamplingSettings]'s doc), so in practice
+  /// the OS itself still suspends iOS location delivery while
+  /// backgrounded; this method not fighting that is correct, not an
+  /// oversight — there is nothing productive it could do differently
+  /// until GPS-4B4 changes the iOS settings too.
+  ///
+  /// When no recording is active, [_positionSub] is already null (no
+  /// other code path ever subscribes outside an active recording), so
+  /// every case below is a no-op by construction, not by an explicit
+  /// guard — there are no "background location resources" to hold onto
+  /// in the first place.
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
     switch (lifecycleState) {
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
-        if (_state.status == GpsRecordingStatus.recording &&
-            _positionSub != null) {
-          unawaited(_positionSub?.cancel());
-          _positionSub = null;
-          _streamSuspendedByBackground = true;
-          debugPrint('gps: sampling suspended (app backgrounded)');
-        }
       case AppLifecycleState.resumed:
-        if (_streamSuspendedByBackground &&
-            _state.status == GpsRecordingStatus.recording &&
-            _state.routeId != null) {
-          _streamSuspendedByBackground = false;
-          _subscribeToPositionStream(_state.routeId!);
-          debugPrint('gps: sampling resumed (app foregrounded, same session)');
-        }
       case AppLifecycleState.inactive:
       case AppLifecycleState.hidden:
         break;
