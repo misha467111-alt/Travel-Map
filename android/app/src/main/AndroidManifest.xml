@@ -4,6 +4,16 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- GPS-4B3 fix: GpsSamplingSettings' Android foreground-service
+         notification config deliberately sets enableWakeLock: true (see
+         its doc comment), which makes geolocator_android's native service
+         call PowerManager.newWakeLock(...).acquire() whenever an active
+         recording's position stream starts — that call requires this
+         permission. Its absence was a real, physically-confirmed defect
+         (GPS-4B3 foreground test): a java.lang.SecurityException killed
+         the position stream silently, producing a "recording" route with
+         zero points and no surfaced error. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <!-- GPS-4B2: lets the active-recording position stream keep running as
          an Android foreground service (geolocator_android's own
          GeolocatorLocationService, foregroundServiceType="location") while
