@@ -1,4 +1,6 @@
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart' show LocationPermission;
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +9,7 @@ import 'package:flutter_application_1/features/gps/recording/gps_recording_contr
 import 'package:flutter_application_1/features/gps/recording/gps_recording_state.dart';
 
 import '../location/fake_location_source.dart';
+import '../location/fake_notification_permission_source.dart';
 
 void main() {
   // GpsRecordingController registers itself as a WidgetsBindingObserver
@@ -17,13 +20,19 @@ void main() {
 
   late GpsLocalDatabase db;
   late FakeLocationSource source;
+  late FakeNotificationPermissionSource notifications;
   late GpsRecordingController controller;
 
   setUp(() {
     db = GpsLocalDatabase.forTesting(NativeDatabase.memory());
     source = FakeLocationSource()..permission = LocationPermission.whileInUse;
-    controller =
-        GpsRecordingController(ownerId: 'me', db: db, locationSource: source);
+    notifications = FakeNotificationPermissionSource();
+    controller = GpsRecordingController(
+      ownerId: 'me',
+      db: db,
+      locationSource: source,
+      notificationPermissionSource: notifications,
+    );
   });
 
   tearDown(() async {
@@ -397,8 +406,11 @@ void main() {
       // one against the same local database.
       controller.dispose();
 
-      final recovered =
-          GpsRecordingController(ownerId: 'me', db: db, locationSource: source);
+      final recovered = GpsRecordingController(
+          ownerId: 'me',
+          db: db,
+          locationSource: source,
+          notificationPermissionSource: notifications);
       await settle();
       expect(recovered.state.status, GpsRecordingStatus.recoverable);
       expect(recovered.state.routeId, routeId);
@@ -415,8 +427,11 @@ void main() {
       final routeId = controller.state.routeId!;
       controller.dispose();
 
-      final recovered =
-          GpsRecordingController(ownerId: 'me', db: db, locationSource: source);
+      final recovered = GpsRecordingController(
+          ownerId: 'me',
+          db: db,
+          locationSource: source,
+          notificationPermissionSource: notifications);
       await settle();
       expect(recovered.state.status, GpsRecordingStatus.recoverable);
       expect(recovered.state.routeId, routeId);
@@ -429,8 +444,11 @@ void main() {
       await settle();
       controller.dispose();
 
-      final recovered =
-          GpsRecordingController(ownerId: 'me', db: db, locationSource: source);
+      final recovered = GpsRecordingController(
+          ownerId: 'me',
+          db: db,
+          locationSource: source,
+          notificationPermissionSource: notifications);
       await settle();
       expect(recovered.state.status, GpsRecordingStatus.recoverable);
 
@@ -448,8 +466,11 @@ void main() {
       final routeId = controller.state.routeId!;
       controller.dispose();
 
-      final recovered =
-          GpsRecordingController(ownerId: 'me', db: db, locationSource: source);
+      final recovered = GpsRecordingController(
+          ownerId: 'me',
+          db: db,
+          locationSource: source,
+          notificationPermissionSource: notifications);
       await settle();
       await recovered.resumeRecoverableRecording();
       await settle();
@@ -465,8 +486,11 @@ void main() {
       final routeId = controller.state.routeId!;
       controller.dispose();
 
-      final recovered =
-          GpsRecordingController(ownerId: 'me', db: db, locationSource: source);
+      final recovered = GpsRecordingController(
+          ownerId: 'me',
+          db: db,
+          locationSource: source,
+          notificationPermissionSource: notifications);
       await settle();
       await recovered.finishRecoverableRecording();
       await settle();
@@ -482,8 +506,11 @@ void main() {
       final routeId = controller.state.routeId!;
       controller.dispose();
 
-      final recovered =
-          GpsRecordingController(ownerId: 'me', db: db, locationSource: source);
+      final recovered = GpsRecordingController(
+          ownerId: 'me',
+          db: db,
+          locationSource: source,
+          notificationPermissionSource: notifications);
       await settle();
       await recovered.discardRecoverableRecording();
       await settle();
@@ -500,7 +527,10 @@ void main() {
       controller.dispose();
 
       final controllerB = GpsRecordingController(
-          ownerId: 'accountB', db: db, locationSource: source);
+          ownerId: 'accountB',
+          db: db,
+          locationSource: source,
+          notificationPermissionSource: notifications);
       await settle();
 
       expect(controllerB.state.status, GpsRecordingStatus.idle);
@@ -604,6 +634,74 @@ void main() {
           reason: 'no background GPS subscription may exist without an '
               'explicitly started recording');
       expect(source.activeSubscriptionCount, 0);
+    });
+  });
+
+  group('notification permission (GPS-4B2.1)', () {
+    final originalPlatformOverride = debugDefaultTargetPlatformOverride;
+
+    tearDown(() {
+      debugDefaultTargetPlatformOverride = originalPlatformOverride;
+    });
+
+    test('start() requests it lazily, exactly once, on Android', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+      await controller.start();
+      await settle();
+
+      expect(notifications.requestCallCount, 1);
+      expect(controller.state.status, GpsRecordingStatus.recording);
+    });
+
+    test('is never requested on iOS -- GPS-4B2/GPS-4B2.1 stay Android-only',
+        () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+
+      await controller.start();
+      await settle();
+
+      expect(notifications.requestCallCount, 0);
+      expect(controller.state.status, GpsRecordingStatus.recording,
+          reason: 'recording itself must be unaffected by this platform '
+              'branch either way');
+    });
+
+    test(
+        'a denial does not block recording, corrupt state, or create a '
+        'duplicate stream', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      notifications.granted = false;
+
+      await controller.start();
+      await settle();
+
+      expect(controller.state.status, GpsRecordingStatus.recording,
+          reason: 'the location foreground service remains fully '
+              'functional regardless of this permission\'s outcome');
+      expect(source.activeSubscriptionCount, 1);
+      expect(source.subscribeCallCount, 1);
+
+      final routeId = controller.state.routeId!;
+      final route = await db.getRecordedRoute(ownerId: 'me', id: routeId);
+      expect(route!.status, RecordedRouteStatus.recording);
+    });
+
+    test('is requested again on an explicit resume(), not only on start()',
+        () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+
+      await controller.start();
+      await settle();
+      expect(notifications.requestCallCount, 1);
+
+      await controller.pause();
+      await settle();
+      await controller.resume();
+      await settle();
+
+      expect(notifications.requestCallCount, 2);
+      expect(controller.state.status, GpsRecordingStatus.recording);
     });
   });
 }

@@ -15,6 +15,16 @@
          is NOT required for (see the GPS-4A architecture report). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- GPS-4B2.1: lets Travel Map show the recording notification in the
+         drawer on Android 13+ (POST_NOTIFICATIONS). Requested lazily, only
+         when a recording actually starts/resumes -- never at app launch.
+         A denial never blocks recording: the location foreground service
+         above remains fully functional with or without it, confirmed
+         against current Android developer documentation (denial only
+         suppresses the notification drawer entry; the service still runs
+         and is still visible in the system's foreground-service Task
+         Manager either way). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission

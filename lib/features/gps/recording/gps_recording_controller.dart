@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart' show Position;
@@ -8,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../location/location_permission_service.dart';
 import '../location/location_permission_state.dart';
 import '../location/location_source.dart';
+import '../location/notification_permission_source.dart';
 import '../local/gps_local_database.dart';
 import '../local/gps_local_database_provider.dart';
 import 'gps_recording_state.dart';
@@ -52,9 +55,11 @@ class GpsRecordingController with WidgetsBindingObserver {
     required String ownerId,
     required GpsLocalDatabase db,
     required LocationSource locationSource,
+    required NotificationPermissionSource notificationPermissionSource,
   })  : _ownerId = ownerId,
         _db = db,
         _locationSource = locationSource,
+        _notificationPermissionSource = notificationPermissionSource,
         _permissionService = LocationPermissionService(locationSource) {
     WidgetsBinding.instance.addObserver(this);
     unawaited(_detectRecoverableRecording());
@@ -63,6 +68,7 @@ class GpsRecordingController with WidgetsBindingObserver {
   final String _ownerId;
   final GpsLocalDatabase _db;
   final LocationSource _locationSource;
+  final NotificationPermissionSource _notificationPermissionSource;
   final LocationPermissionService _permissionService;
 
   final _stateController = StreamController<GpsRecordingState>.broadcast();
@@ -241,11 +247,19 @@ class GpsRecordingController with WidgetsBindingObserver {
   /// untouched (still a valid, recoverable 'recording' row) — only the
   /// in-memory state reflects the failure, so the UI never shows a fake
   /// healthy recording, but no local data is destroyed either.
+  ///
+  /// This is also the one place [_ensureNotificationPermissionRequested]
+  /// is called (GPS-4B2.1): every path that (re)starts the position
+  /// stream — `start()`, an explicit `resume()`, and
+  /// `resumeRecoverableRecording()`'s already-recording branch — shares
+  /// this method, so the request naturally happens lazily on each of
+  /// them without duplicating the call at each call site.
   Future<void> _startStreamAndEmitRecording(
     String routeId,
     String transportMode, {
     DateTime? startedAt,
   }) async {
+    await _ensureNotificationPermissionRequested();
     try {
       _subscribeToPositionStream(routeId);
     } catch (error) {
@@ -268,6 +282,37 @@ class GpsRecordingController with WidgetsBindingObserver {
       transportMode: transportMode,
     ));
     debugPrint('gps: position stream started for route');
+  }
+
+  /// Android 13+ only (GPS-4B2.1): lazily requests `POST_NOTIFICATIONS`
+  /// exactly when a recording is about to (re)start its position stream —
+  /// i.e. exactly when the foreground-service notification this
+  /// permission controls is about to appear. Never requested at app
+  /// launch, never requested for any reason other than an active
+  /// recording actually (re)starting.
+  ///
+  /// Deliberately never gates recording on the outcome: confirmed against
+  /// current Android developer documentation that a location foreground
+  /// service remains fully standards-compliant and functional with or
+  /// without this permission — a denial only suppresses the notification
+  /// drawer entry, the service and the recording itself are unaffected
+  /// either way (see `GpsSamplingSettings`'s Android notification config).
+  /// The outcome is only logged, not stored in [GpsRecordingState] — no
+  /// current UI needs to surface it, and adding a field for it now would
+  /// be speculative; a future production recording screen can add one
+  /// if/when it actually needs to show this to the user.
+  ///
+  /// iOS is never touched by this at all, regardless of platform-checked
+  /// outcome — `permission_handler`'s iOS implementation is present only
+  /// as an unavoidable transitive dependency of the federated
+  /// `permission_handler` plugin and is never invoked from any iOS code
+  /// path; GPS-4B2/GPS-4B2.1 stay Android-only.
+  Future<void> _ensureNotificationPermissionRequested() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    final granted = await _notificationPermissionSource.request();
+    debugPrint('gps: notification permission '
+        '${granted ? 'granted' : 'denied'} (recording is not blocked '
+        'either way)');
   }
 
   void _subscribeToPositionStream(String routeId) {
@@ -524,6 +569,7 @@ final gpsRecordingControllerProvider =
     ownerId: ownerId,
     db: db,
     locationSource: const GeolocatorLocationSource(),
+    notificationPermissionSource: const PermissionHandlerNotificationSource(),
   );
   ref.onDispose(controller.dispose);
   return controller;
