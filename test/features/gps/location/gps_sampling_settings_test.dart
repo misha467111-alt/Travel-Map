@@ -66,19 +66,25 @@ void main() {
     });
   });
 
-  group('GpsSamplingSettings.forCurrentPlatform on iOS (unchanged)', () {
+  group('GpsSamplingSettings.forCurrentPlatform on iOS (GPS-4B4B)', () {
     setUp(() {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     });
 
     test(
-        'GPS-4B2 does not enable background location updates on iOS -- '
-        'that is GPS-4B4', () {
+        'enables background location updates so an already-started '
+        'foreground recording keeps delivering after backgrounding, '
+        'without requesting Always authorization', () {
       final settings =
           GpsSamplingSettings.forCurrentPlatform() as AppleSettings;
 
-      expect(settings.allowBackgroundLocationUpdates, isFalse);
-      expect(settings.showBackgroundLocationIndicator, isFalse);
+      expect(settings.allowBackgroundLocationUpdates, isTrue,
+          reason: 'When In Use authorization is sufficient here because '
+              'every position stream is started while the app is '
+              'foregrounded -- see GpsSamplingSettings doc comment');
+      expect(settings.showBackgroundLocationIndicator, isFalse,
+          reason: 'only has an effect under Always authorization, which '
+              'this app deliberately never requests');
     });
   });
 }

@@ -47,6 +47,10 @@
 	<string>Доступ до галереї потрібен для вибору фотографій локацій.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ваше місцезнаходження потрібне для показу позиції на карті та побудови маршрутів.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

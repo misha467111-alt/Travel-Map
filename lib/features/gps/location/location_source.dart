@@ -78,15 +78,24 @@ class GeolocatorLocationSource implements LocationSource {
 ///     background are two OS-level execution states of the exact same
 ///     subscription, not two configurations an app-level caller picks
 ///     between.
-///   - iOS: unchanged from GPS-3/GPS-4B1 and **must stay that way**
-///     until GPS-4B4 — `allowBackgroundLocationUpdates` is explicitly
-///     `false` (its own default in AppleSettings is actually `true` —
-///     confirmed by reading the geolocator_apple source, not assumed —
-///     so leaving it unset here would have been a real foreground-only
-///     violation). `Info.plist` still has no `UIBackgroundModes` entry
-///     (GPS-4B2 does not touch it), so this would likely no-op at the
-///     OS level regardless, but this phase does not rely on that as
-///     its safety net.
+///   - iOS (GPS-4B4B): `allowBackgroundLocationUpdates` is `true`.
+///     `Info.plist` declares `UIBackgroundModes: [location]`, and
+///     `NSLocationWhenInUseUsageDescription` is the only location usage
+///     description present -- deliberately no Always/
+///     NSLocationAlwaysAndWhenInUseUsageDescription. Per Apple's own
+///     documented contract (and confirmed against
+///     geolocator_apple 2.3.14's native source, which ANDs this flag
+///     with a live `UIBackgroundModes` check before ever touching
+///     `CLLocationManager.allowsBackgroundLocationUpdates`), "When In
+///     Use" authorization is sufficient for a position stream that is
+///     already running to keep delivering updates after the app is
+///     backgrounded -- "Always" is only required to *start* a session
+///     while already backgrounded or for the OS to relaunch a
+///     terminated app, neither of which this controller ever does
+///     (every subscription starts from an explicit, foregrounded
+///     `start()`/`resume()`). `showBackgroundLocationIndicator` stays
+///     `false`: its own doc states it only has an effect under Always
+///     authorization, which this app deliberately never requests.
 class GpsSamplingSettings {
   const GpsSamplingSettings._();
 
@@ -138,7 +147,7 @@ class GpsSamplingSettings {
         return AppleSettings(
           accuracy: accuracy,
           distanceFilter: distanceFilterMeters,
-          allowBackgroundLocationUpdates: false,
+          allowBackgroundLocationUpdates: true,
           showBackgroundLocationIndicator: false,
           pauseLocationUpdatesAutomatically: false,
         );
