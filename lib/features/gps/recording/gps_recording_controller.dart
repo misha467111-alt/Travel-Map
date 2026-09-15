@@ -13,20 +13,28 @@ import '../local/gps_local_database_provider.dart';
 import 'gps_recording_state.dart';
 import 'gps_sample_validation.dart';
 
-/// Owns one account's foreground GPS recording session end to end:
-/// permission/service readiness, starting the position stream, sample
-/// validation, persisting every accepted point through the GPS-2 Drift
-/// layer (never raw SQL from this class), pause/resume/finish/discard,
-/// waypoints, app-lifecycle-aware stream suspension, and crash/restart
-/// recovery detection.
+/// Owns one account's GPS recording session end to end: permission/service
+/// readiness, starting the position stream, sample validation, persisting
+/// every accepted point through the GPS-2 Drift layer (never raw SQL from
+/// this class), pause/resume/finish/discard, waypoints, app-lifecycle-aware
+/// stream suspension, and crash/restart recovery detection.
 ///
-/// Plain class + `Provider.autoDispose`, not a Riverpod `Notifier` —
-/// deliberately mirrors the already-proven pattern this exact codebase
-/// uses for `ChatConversationController` (manual broadcast
-/// `StreamController` + a companion `StreamProvider` for the UI), for
-/// the same reason established there: this Riverpod version's
-/// family-notifier API has no documented public base class this
-/// codebase uses anywhere.
+/// Plain class + `Provider`, not a Riverpod `Notifier` — deliberately
+/// mirrors the already-proven pattern this exact codebase uses for
+/// `ChatConversationController` (manual broadcast `StreamController` + a
+/// companion `StreamProvider` for the UI), for the same reason established
+/// there: this Riverpod version's family-notifier API has no documented
+/// public base class this codebase uses anywhere.
+///
+/// [gpsRecordingControllerProvider] is deliberately **not** `.autoDispose`
+/// (GPS-4B1): an active recording is a session, not a screen-local widget
+/// concern — it must survive the user navigating to Map/Explore/Profile/
+/// Settings and back, which an `autoDispose` family provider cannot
+/// guarantee, since it tears down (cancelling [_positionSub] with it) the
+/// moment its last UI watcher unmounts. The controller instance now lives
+/// for the `ProviderContainer`'s lifetime once first created for a given
+/// [_ownerId], exactly like this codebase's existing
+/// `gpsLocalDatabaseProvider`, and is disposed only at container teardown.
 ///
 /// Entirely free of any direct Supabase dependency, unlike an earlier
 /// draft of this class: "confirm authenticated user" (task 5) is
@@ -86,7 +94,17 @@ class GpsRecordingController with WidgetsBindingObserver {
   /// auto-resume rule this drives.
   bool _streamSuspendedByBackground = false;
 
+  bool _disposed = false;
+
+  /// Read-only observability seam (GPS-4B1): [WidgetsBinding] exposes no
+  /// public way to confirm an observer was actually removed, so this
+  /// minimal flag exists purely so a test can confirm [dispose] ran (e.g.
+  /// at `ProviderContainer` teardown) without exposing any other internal
+  /// state.
+  bool get isDisposed => _disposed;
+
   void dispose() {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_positionSub?.cancel());
     _stateController.close();
@@ -512,7 +530,7 @@ class GpsRecordingController with WidgetsBindingObserver {
 }
 
 final gpsRecordingControllerProvider =
-    Provider.autoDispose.family<GpsRecordingController, String>((ref, ownerId) {
+    Provider.family<GpsRecordingController, String>((ref, ownerId) {
   final db = ref.watch(gpsLocalDatabaseProvider);
   final controller = GpsRecordingController(
     ownerId: ownerId,
@@ -526,6 +544,18 @@ final gpsRecordingControllerProvider =
 /// UI-facing reactive state — same pattern as
 /// `chatConversationStateProvider`: a plain `StreamProvider.family`
 /// wrapping the controller's manually-managed stream.
+///
+/// Deliberately still `.autoDispose`, unlike
+/// [gpsRecordingControllerProvider] above: this provider is only a thin
+/// reactive relay (it holds no state and owns no resources beyond a
+/// stream subscription), so it is safe and preferable to let Riverpod
+/// tear it down when no UI is watching. The upstream controller keeps
+/// running regardless — it does not depend on this provider staying
+/// alive — and [GpsRecordingController.stateStream]'s `Stream.multi`
+/// replay (see its doc comment) guarantees a freshly re-watched instance
+/// of this provider immediately receives the controller's current state,
+/// not a stale or missed one, so no UI state is ever lost across a
+/// navigate-away-and-back.
 final gpsRecordingStateProvider = StreamProvider.autoDispose
     .family<GpsRecordingState, String>((ref, ownerId) {
   return ref.watch(gpsRecordingControllerProvider(ownerId)).stateStream;
