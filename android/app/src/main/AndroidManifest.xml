@@ -10,14 +10,14 @@
          Travel Map is backgrounded or the screen is locked. Deliberately
          NOT ACCESS_BACKGROUND_LOCATION: the service is always created while
          the app is in the foreground, as a direct result of the user
-         tapping Start -- confirmed against current Android developer
+         tapping Start — confirmed against current Android developer
          documentation that this is exactly the case ACCESS_BACKGROUND_LOCATION
          is NOT required for (see the GPS-4A architecture report). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <!-- GPS-4B2.1: lets Travel Map show the recording notification in the
          drawer on Android 13+ (POST_NOTIFICATIONS). Requested lazily, only
-         when a recording actually starts/resumes -- never at app launch.
+         when a recording actually starts/resumes — never at app launch.
          A denial never blocks recording: the location foreground service
          above remains fully functional with or without it, confirmed
          against current Android developer documentation (denial only

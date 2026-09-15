@@ -24,7 +24,19 @@ dependencies:
   drift: ^2.35.0
   drift_flutter: ^0.3.1
   path_provider: ^2.1.6
-  permission_handler: ^13.0.2
+  # GPS-4B2.2: pinned below the latest umbrella releases (13.0.0/13.0.1/
+  # 13.0.2), which all require permission_handler_android >=14.0.0 --
+  # confirmed by reading permission_handler_android 14.0.0's *and* 14.1.0's
+  # own android/build.gradle.kts, both declare compileSdk = 37, above this
+  # project's compileSdk 36 and above Android Gradle Plugin 9.0.1's own
+  # recommended ceiling (see android/settings.gradle). permission_handler
+  # 12.0.3 is the newest umbrella release still constrained to
+  # permission_handler_android ^13.0.0 (confirmed via pub.dev's package
+  # API, not guessed); the explicit permission_handler_android pin below
+  # keeps resolution at exactly 13.0.1, confirmed via its own
+  # android/build.gradle to declare compileSdkVersion 35.
+  permission_handler: 12.0.3
+  permission_handler_android: 13.0.1
 dependency_overrides:
   google_maps_flutter_android:
     path: third_party/google_maps_flutter_android
