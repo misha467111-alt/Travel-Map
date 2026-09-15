@@ -100,7 +100,10 @@ class GpsRecordingController with WidgetsBindingObserver {
   /// public way to confirm an observer was actually removed, so this
   /// minimal flag exists purely so a test can confirm [dispose] ran (e.g.
   /// at `ProviderContainer` teardown) without exposing any other internal
-  /// state.
+  /// state. Not meant for production call sites — see
+  /// `gps_recording_controller_provider_test.dart`'s container-disposal
+  /// test for its one real use.
+  @visibleForTesting
   bool get isDisposed => _disposed;
 
   void dispose() {
