@@ -12,6 +12,7 @@ import '../../gps/local/gps_local_database_provider.dart';
 import '../../navigation/presentation/main_navigation_screen.dart';
 import '../../social/providers/public_profile_provider.dart';
 import '../domain/user_profile.dart';
+import '../domain/xp_levels.dart';
 import '../providers/profile_provider.dart';
 import 'profile_components.dart';
 
@@ -172,7 +173,7 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
   @override
   Widget build(BuildContext context) {
     final profile = widget.profile;
-    final nextXp = _nextXp(profile.xp);
+    final nextXp = xpNextLevelThreshold(profile.xp);
     final savedState = widget.savedCountOverride == null
         ? ref.watch(savedPublicLocationsProvider)
         : null;
@@ -239,9 +240,7 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
                     ]),
                     const SizedBox(height: 6),
                     LinearProgressIndicator(
-                      value: nextXp == null
-                          ? 1
-                          : (profile.xp / nextXp).clamp(0, 1),
+                      value: xpProgressWithinLevel(profile.xp),
                       minHeight: 4,
                       color: const Color(0xFFD4A017),
                     ),
@@ -375,11 +374,4 @@ class _ProfileSection extends StatelessWidget {
           ),
         ]),
       );
-}
-
-int? _nextXp(int xp) {
-  for (final threshold in const [200, 700, 1500, 3000]) {
-    if (xp < threshold) return threshold;
-  }
-  return null;
 }

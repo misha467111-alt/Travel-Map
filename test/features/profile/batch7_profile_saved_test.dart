@@ -55,7 +55,9 @@ void main() {
     expect(find.byKey(const Key('profile_avatar_fallback')), findsOneWidget);
     expect(find.text(profile.level), findsOneWidget);
     expect(find.text('320 XP'), findsOneWidget);
-    expect(find.text('320 / 700 XP'), findsOneWidget);
+    // Backend-authoritative next threshold for 320 XP (Мандрівник tier,
+    // floor 300) is 600, not 700 -- see xp_levels.dart / Phase 1 XP fix.
+    expect(find.text('320 / 600 XP'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
     expect(find.text('4'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
@@ -67,6 +69,44 @@ void main() {
     );
     expect(find.text('3 із 8'), findsOneWidget);
     expect(find.text('Доступно: 2'), findsOneWidget);
+  });
+
+  testWidgets(
+      'at the maximum level, the XP card shows no fake next-level target '
+      'and a full progress bar', (tester) async {
+    const maxLevelProfile = UserProfile(
+      id: 'user-1',
+      name: 'Максим Максимальний',
+      email: 'max@example.com',
+      level: 'Першовідкривач',
+      xp: 1500,
+      locationsCount: 40,
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: ProfileContent(
+              profile: maxLevelProfile,
+              savedCountOverride: 0,
+              achievementProgressOverride: const (unlocked: 0, total: 0),
+              inviteBalanceOverride: 0,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('1500 XP'), findsOneWidget);
+    // No "/ <threshold> XP" text at max level -- there is no next level.
+    expect(find.textContaining('/'), findsNothing);
+    final progressBar = tester.widget<LinearProgressIndicator>(
+      find.descendant(
+        of: find.byKey(const Key('profile_xp_progress')),
+        matching: find.byType(LinearProgressIndicator),
+      ),
+    );
+    expect(progressBar.value, 1);
   });
 
   testWidgets('every visible profile destination and logout are wired',
