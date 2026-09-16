@@ -20,6 +20,8 @@ class ClusteredLocationMap extends StatefulWidget {
     this.overlays = const <Widget>[],
     this.additionalToolbarActions,
     this.beforeLocationToolbarAction,
+    this.onTap,
+    this.pickedLocation,
     super.key,
   });
 
@@ -33,6 +35,18 @@ class ClusteredLocationMap extends StatefulWidget {
   final List<Widget> overlays;
   final Widget? additionalToolbarActions;
   final Widget? beforeLocationToolbarAction;
+
+  /// Phase 2.2B (LocationPickMode): a single regular tap on the map.
+  /// `null` everywhere else this widget is used (ExploreMode has no use
+  /// for a plain-tap callback -- POI taps go through [onLocationTap] and
+  /// point selection isn't a concept outside location picking).
+  final ValueChanged<LatLng>? onTap;
+
+  /// Phase 2.2B (LocationPickMode): the user's currently, explicitly
+  /// selected create-location point, if any. Rendered as a marker
+  /// visually distinct from both POI markers and the user's own GPS
+  /// marker -- never auto-set from [userPosition].
+  final LatLng? pickedLocation;
 
   @override
   State<ClusteredLocationMap> createState() => _ClusteredLocationMapState();
@@ -106,6 +120,18 @@ class _ClusteredLocationMapState extends State<ClusteredLocationMap> {
         icon: userIcon,
         anchor: const Offset(.5, .5),
         zIndexInt: 1000,
+      ));
+    }
+    final picked = widget.pickedLocation;
+    if (picked != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('picked_location'),
+        position: picked,
+        icon: BitmapDescriptor.defaultMarkerWithHue(
+          BitmapDescriptor.hueAzure,
+        ),
+        anchor: const Offset(.5, 1),
+        zIndexInt: 2000,
       ));
     }
     return markers;
@@ -203,6 +229,7 @@ class _ClusteredLocationMapState extends State<ClusteredLocationMap> {
                 Timer(const Duration(milliseconds: 300), _reportViewport);
           },
           onLongPress: widget.onLongPress,
+          onTap: widget.onTap,
           myLocationEnabled: false,
           mapToolbarEnabled: false,
           zoomControlsEnabled: false,

@@ -24,6 +24,8 @@ create table public.check_ins (id uuid default gen_random_uuid() not null, user_
 
 create table public.comments (id uuid default gen_random_uuid() not null, location_id uuid not null, user_id uuid not null, text text not null, rating integer, created_at timestamp with time zone default timezone('utc'::text, now()) not null, author_id uuid, parent_id uuid, body text, status social_content_status default 'visible'::social_content_status, updated_at timestamp with time zone default now());
 
+alter table public.comments add constraint comments_pkey PRIMARY KEY (id);
+
 create table public.follows (follower_id uuid not null, following_id uuid not null, created_at timestamp with time zone default now() not null);
 
 create table public.friendships (id uuid default gen_random_uuid() not null, user_id_1 uuid not null, user_id_2 uuid not null, status text not null, created_at timestamp with time zone default timezone('utc'::text, now()) not null);
@@ -34,6 +36,8 @@ create table public.invite_redemptions (code text not null, user_id uuid not nul
 
 create table public.invites (code text not null, created_by uuid, max_uses integer default 1 not null, uses integer default 0 not null, expires_at timestamp with time zone, created_at timestamp with time zone default now() not null);
 
+alter table public.invites add constraint invites_pkey PRIMARY KEY (code);
+
 create table public.location_categories (location_id uuid not null, category_id uuid not null, added_by uuid, created_at timestamp with time zone default now() not null);
 
 create table public.location_photos (id uuid default gen_random_uuid() not null, location_id uuid not null, uploader_id uuid not null, storage_path text not null, caption text default ''::text not null, sort_order smallint default 0 not null, status social_content_status default 'pending'::social_content_status not null, created_at timestamp with time zone default now() not null, updated_at timestamp with time zone default now() not null);
@@ -42,17 +46,23 @@ create table public.location_tags (location_id uuid not null, tag_id uuid not nu
 
 create table public.locations (id uuid default gen_random_uuid() not null, user_id uuid not null, title text not null, description text default ''::text not null, coordinates geography(Point,4326) not null, created_at timestamp with time zone default timezone('utc'::text, now()) not null, image_url text, category text default 'general'::text, is_public boolean default true not null, owner_id uuid not null, name text not null, "position" geography(Point,4326) not null, status location_status default 'draft'::location_status not null, visibility location_visibility default 'public'::location_visibility not null, moderation text default 'draft'::text not null, secrecy text default 'public'::text not null, road_difficulty text default 'easy'::text, has_parking boolean default false, safety text default 'unknown'::text, minimum_xp integer default 0, rating numeric(3,2) default 0, ratings_count integer default 0, updated_at timestamp with time zone default now(), request_id uuid);
 
+alter table public.locations add constraint locations_pkey PRIMARY KEY (id);
+
 create table public.messages (id text default (gen_random_uuid())::text not null, sender_id text, receiver_id text, text text, "timestamp" timestamp with time zone default now());
 
 create table public.notifications (id uuid default gen_random_uuid() not null, user_id uuid not null, title text not null, message text not null, is_read boolean default false not null, created_at timestamp with time zone default now() not null);
 
 create table public.profiles (id uuid default gen_random_uuid() not null, user_id uuid not null, name text default 'Дослідник'::text not null, xp integer default 0 not null, level text default 'Новачок'::text not null, invites_left integer default 3, is_developer boolean default false, created_at timestamp with time zone default timezone('utc'::text, now()) not null, distance_traveled_km numeric default 0 not null, username text not null, display_name text default ''::text not null, avatar_url text, updated_at timestamp with time zone default now() not null, invite_redeemed boolean default false, invited_by uuid, invite_balance integer default 1, highest_level_rewarded integer default 1 not null);
 
+alter table public.profiles add constraint profiles_pkey PRIMARY KEY (id);
+
 create table public.reviews (id uuid default gen_random_uuid() not null, location_id uuid not null, user_id uuid not null, text text not null, rating integer, created_at timestamp with time zone default timezone('utc'::text, now()) not null);
 
 create table public.routes (id text not null, title text, description text, author text, author_id text, points jsonb default '[]'::jsonb, liked_by_users text[] default '{}'::text[]);
 
 create table public.tags (id uuid default gen_random_uuid() not null, slug text not null, name text not null, created_by uuid not null, created_at timestamp with time zone default now() not null, updated_at timestamp with time zone default now() not null);
+
+alter table public.tags add constraint tags_pkey PRIMARY KEY (id);
 
 create table public.user_achievements (id uuid default gen_random_uuid() not null, user_id uuid not null, achievement_key text not null, unlocked_at timestamp with time zone default now() not null);
 
@@ -77,8 +87,6 @@ alter table public.comments add constraint comments_author_id_fkey FOREIGN KEY (
 alter table public.comments add constraint comments_location_id_fkey FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE;
 
 alter table public.comments add constraint comments_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES comments(id) ON DELETE CASCADE NOT VALID;
-
-alter table public.comments add constraint comments_pkey PRIMARY KEY (id);
 
 alter table public.comments add constraint comments_rating_check CHECK (rating >= 1 AND rating <= 5);
 
@@ -114,8 +122,6 @@ alter table public.invite_redemptions add constraint invite_redemptions_user_id_
 
 alter table public.invites add constraint invites_created_by_fkey FOREIGN KEY (created_by) REFERENCES profiles(id);
 
-alter table public.invites add constraint invites_pkey PRIMARY KEY (code);
-
 alter table public.location_categories add constraint location_categories_added_by_fkey FOREIGN KEY (added_by) REFERENCES profiles(id) ON DELETE SET NULL;
 
 alter table public.location_categories add constraint location_categories_category_id_fkey FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE;
@@ -144,8 +150,6 @@ alter table public.locations add constraint locations_category_check CHECK (cate
 
 alter table public.locations add constraint locations_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES profiles(id) ON DELETE CASCADE NOT VALID;
 
-alter table public.locations add constraint locations_pkey PRIMARY KEY (id);
-
 alter table public.locations add constraint locations_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 alter table public.messages add constraint messages_pkey PRIMARY KEY (id);
@@ -157,8 +161,6 @@ alter table public.notifications add constraint notifications_user_id_fkey FOREI
 alter table public.profiles add constraint profiles_distance_traveled_km_check CHECK (distance_traveled_km >= 0::numeric);
 
 alter table public.profiles add constraint profiles_identity_columns_match_check CHECK (user_id = id) NOT VALID;
-
-alter table public.profiles add constraint profiles_pkey PRIMARY KEY (id);
 
 alter table public.profiles add constraint profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE NOT VALID;
 
@@ -177,8 +179,6 @@ alter table public.reviews add constraint reviews_user_id_fkey FOREIGN KEY (user
 alter table public.routes add constraint routes_pkey PRIMARY KEY (id);
 
 alter table public.tags add constraint tags_created_by_fkey FOREIGN KEY (created_by) REFERENCES profiles(id) ON DELETE CASCADE;
-
-alter table public.tags add constraint tags_pkey PRIMARY KEY (id);
 
 alter table public.tags add constraint tags_slug_key UNIQUE (slug);
 

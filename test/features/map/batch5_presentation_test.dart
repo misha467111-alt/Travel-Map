@@ -49,7 +49,13 @@ void main() {
 
     final image =
         tester.widget<Image>(find.byKey(const Key('location_real_image')));
-    expect((image.image as NetworkImage).url, withImage.imageUrl);
+    // Phase 2.2A1-F: LocationImage now passes cacheWidth/cacheHeight, so
+    // Image.network wraps the NetworkImage in a ResizeImage -- unwrap it
+    // to reach the same URL this test has always asserted on.
+    expect(
+      ((image.image as ResizeImage).imageProvider as NetworkImage).url,
+      withImage.imageUrl,
+    );
   });
 
   for (final width in [320.0, 360.0, 390.0, 430.0]) {

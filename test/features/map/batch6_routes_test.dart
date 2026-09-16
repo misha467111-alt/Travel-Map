@@ -139,7 +139,10 @@ void main() {
 
     final image =
         tester.widget<Image>(find.byKey(const Key('route_real_image')));
-    expect((image.image as NetworkImage).url, withImage.imageUrl);
+    expect(
+      ((image.image as ResizeImage).imageProvider as NetworkImage).url,
+      withImage.imageUrl,
+    );
   });
 
   for (final width in [320.0, 360.0, 390.0, 430.0]) {

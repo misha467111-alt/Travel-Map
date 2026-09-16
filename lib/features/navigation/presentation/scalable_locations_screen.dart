@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../map/data/routes_repository.dart';
+import '../../map/domain/location_categories.dart';
 import '../../map/domain/location_model.dart';
 import '../../map/domain/location_query.dart';
 import '../../map/domain/route.dart';
@@ -42,15 +43,6 @@ class _ScalableLocationsScreenState
   double _radiusKm = 10;
   int _adventureGeneration = 1;
   LocationModel? _activeRouteDestination;
-
-  static const _categoryPresentation = <String, (String, IconData)>{
-    'all': ('Усі', Icons.auto_awesome),
-    'general': ('Загальне', Icons.place_outlined),
-    'cafe': ('Кафе', Icons.local_cafe),
-    'nature': ('Природа', Icons.park),
-    'culture': ('Культура', Icons.museum),
-    'entertainment': ('Розваги', Icons.theater_comedy),
-  };
 
   bool get _isDiscover =>
       widget.mode == ScalableLocationListMode.discover ||
@@ -370,27 +362,20 @@ class _ScalableLocationsScreenState
             Wrap(
               spacing: 5,
               runSpacing: 0,
-              children: [
-                'all',
-                'general',
-                'cafe',
-                'nature',
-                'culture',
-                'entertainment'
-              ]
-                  .map((category) => ChoiceChip(
+              children: referenceLocationCategories
+                  .map((definition) => ChoiceChip(
+                        key: Key('sphere_category_${definition.key}'),
                         visualDensity:
                             const VisualDensity(horizontal: -3, vertical: -3),
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-                        avatar:
-                            Icon(_categoryPresentation[category]!.$2, size: 15),
-                        label: Text(_categoryPresentation[category]!.$1,
+                        avatar: Icon(definition.icon, size: 15),
+                        label: Text(definition.label,
                             style: const TextStyle(
                                 fontSize: 12, fontWeight: FontWeight.w500)),
-                        selected: _category == category,
+                        selected: _category == definition.key,
                         onSelected: (_) {
-                          setState(() => _category = category);
+                          setState(() => _category = definition.key);
                           if (_isDiscover) _loadPage(reset: true);
                         },
                       ))
@@ -398,7 +383,18 @@ class _ScalableLocationsScreenState
             ),
           ],
           if (widget.mode == ScalableLocationListMode.nearby ||
-              widget.mode == ScalableLocationListMode.adventure)
+              widget.mode == ScalableLocationListMode.adventure) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                key: const Key('sphere_radius_label'),
+                'Радіус: ${_radiusKm.round()} км',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelLarge
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
             Slider(
               value: _radiusKm,
               min: 1,
@@ -407,6 +403,7 @@ class _ScalableLocationsScreenState
               label: '${_radiusKm.round()} км',
               onChanged: (value) => setState(() => _radiusKm = value),
             ),
+          ],
           for (final location in items)
             _BoundedLocationCard(
               location: location,
@@ -527,9 +524,9 @@ class _RouteDestinationSheet extends StatelessWidget {
                         color: Color(0xFFD4A017)),
                     title: Text(item.title,
                         maxLines: 2, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(_ScalableLocationsScreenState
-                            ._categoryPresentation[item.category]?.$1 ??
-                        'Локація'),
+                    subtitle: Text(locationCategoryDefinition(item.category)
+                        .label
+                        .replaceAll('\n', ' ')),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.pop(context, item),
                   );

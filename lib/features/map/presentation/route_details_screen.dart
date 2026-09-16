@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/location_model.dart';
 import '../providers/route_provider.dart';
+import 'location_card.dart' show locationImageDecodeSize;
 import 'map_screen.dart';
 import 'routes_presentation.dart';
 
@@ -133,13 +134,23 @@ class RouteHero extends StatelessWidget {
         key: const Key('route_details_hero'),
         height: height,
         child: image?.isNotEmpty == true
-            ? Image.network(
-                image!,
-                key: const Key('route_real_image'),
-                width: double.infinity,
-                height: double.infinity,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const RoutePlaceholder(),
+            ? LayoutBuilder(
+                builder: (context, constraints) {
+                  final decodeSize = locationImageDecodeSize(
+                    constraints: constraints,
+                    devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                  );
+                  return Image.network(
+                    image!,
+                    key: const Key('route_real_image'),
+                    width: double.infinity,
+                    height: double.infinity,
+                    fit: BoxFit.cover,
+                    cacheWidth: decodeSize.width,
+                    cacheHeight: decodeSize.height,
+                    errorBuilder: (_, __, ___) => const RoutePlaceholder(),
+                  );
+                },
               )
             : const RoutePlaceholder(),
       ),

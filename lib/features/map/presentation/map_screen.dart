@@ -1,13 +1,9 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../controllers/profile_controller.dart';
 import '../../notifications/presentation/notifications_screen.dart';
@@ -34,6 +30,22 @@ import 'review_screen.dart';
 import 'map_filters_sheet.dart';
 import 'map_categories_sheet.dart';
 import '../../navigation/presentation/scalable_locations_screen.dart';
+import 'create_location_screen.dart';
+import 'location_pick_screen.dart';
+
+/// Shown after a successful [LocationsRepository.createLocation] call.
+/// Deliberately does not claim the location is already public: every new
+/// location is inserted with `status = 'draft'` and only becomes visible
+/// to map queries once the moderation pipeline (`moderate-content`
+/// Edge Function -> `record_location_moderation_result`) approves it --
+/// see `create_location_with_xp` / `travel_locations_in_bounds_v2`.
+/// `@visibleForTesting` only so a test can assert the UI actually shows
+/// this exact text, without needing to drive the private
+/// `_AddLocationDialog`/`_addLocation` flow through a full `GoogleMap`
+/// widget test harness.
+@visibleForTesting
+const locationPendingReviewMessage =
+    'Локацію створено та відправлено на перевірку';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -79,7 +91,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
     if (!context.mounted) return;
     if (action == 'location') {
-      await _addLocation(context, ref, point);
+      await _pickLocationThenCreate(
+        context,
+        ref,
+        initialTarget: point,
+        initialPicked: point,
+      );
     } else if (action == 'route') {
       await Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => RouteCreationScreen(
@@ -137,6 +154,40 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     ));
   }
 
+  /// Phase 2.2B: the only entry point that leads to creating a public
+  /// location. [initialTarget] only centers [LocationPickScreen]'s
+  /// camera (GPS position, or the long-pressed point as a convenience);
+  /// [initialPicked] pre-seeds an already-explicit selection (the exact
+  /// long-pressed point) but is never GPS-derived. Either way, the point
+  /// actually submitted is whatever the user explicitly confirmed there.
+  Future<void> _pickLocationThenCreate(
+    BuildContext context,
+    WidgetRef ref, {
+    required LatLng initialTarget,
+    LatLng? initialPicked,
+  }) async {
+    if (!ref.read(isOnlineProvider)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Для цієї дії потрібен інтернет')),
+      );
+      return;
+    }
+    final picked = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute<LatLng>(
+        fullscreenDialog: true,
+        builder: (_) => LocationPickScreen(
+          initialTarget: initialTarget,
+          initialPicked: initialPicked,
+          userPosition: _lastUserLatitude == null
+              ? null
+              : LatLng(_lastUserLatitude!, _lastUserLongitude!),
+        ),
+      ),
+    );
+    if (picked == null || !context.mounted) return;
+    await _addLocation(context, ref, picked);
+  }
+
   Future<void> _addLocation(
     BuildContext context,
     WidgetRef ref,
@@ -148,40 +199,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       );
       return;
     }
-    final input = await showDialog<_NewLocationInput>(
-      context: context,
-      builder: (context) => const _AddLocationDialog(),
+    // CreateLocationScreen owns the actual createLocation() call and the
+    // viewportLocationsProvider invalidation itself (so it can show its
+    // own submitting/loading state); it only pops with `true` once both
+    // have already completed successfully. The pending-review message is
+    // shown from here, on the map's own Scaffold, because a SnackBar
+    // shown from the screen we just popped would be torn down before it
+    // could ever be read.
+    final created = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        fullscreenDialog: true,
+        builder: (_) => CreateLocationScreen(point: point),
+      ),
     );
-    if (input == null || !context.mounted) return;
-
-    final requestId = const Uuid().v4();
-    try {
-      await ref.read(locationsRepositoryProvider).createLocation(
-            title: input.title,
-            description: input.description,
-            latitude: point.latitude,
-            longitude: point.longitude,
-            category: input.category,
-            imageBytes: input.imageBytes,
-            imageName: input.imageName,
-            requestId: requestId,
-          );
-      ref.invalidate(viewportLocationsProvider);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Локацію успішно додано.')),
-        );
-      }
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content:
-                const Text('Не вдалося зберегти локацію. Спробуйте ще раз.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    if (created == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(locationPendingReviewMessage)),
+      );
     }
   }
 
@@ -362,10 +396,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ),
                 ),
                 additionalToolbarActions: _MapQuickActions(
-                  onAdd: () => _addLocation(
+                  onAdd: () => _pickLocationThenCreate(
                     context,
                     ref,
-                    LatLng(currentPosition.latitude, currentPosition.longitude),
+                    initialTarget: LatLng(
+                      currentPosition.latitude,
+                      currentPosition.longitude,
+                    ),
                   ),
                 ),
                 overlays: [
@@ -822,10 +859,27 @@ class _LocationDetailsContentState
                 height: 120,
                 child: Stack(fit: StackFit.expand, children: [
                   if (heroUrl?.trim().isNotEmpty == true)
-                    Image.network(heroUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            LocationImage(location: location))
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        // Larger decode target than a list/card thumbnail
+                        // -- this box is the full hero width, not a
+                        // 78x92 tile -- computed the same way (bounded
+                        // by the actual rendered box, scaled for device
+                        // pixel ratio, capped at the stored image's own
+                        // max size) via the shared helper.
+                        final decodeSize = locationImageDecodeSize(
+                          constraints: constraints,
+                          devicePixelRatio:
+                              MediaQuery.devicePixelRatioOf(context),
+                        );
+                        return Image.network(heroUrl!,
+                            fit: BoxFit.cover,
+                            cacheWidth: decodeSize.width,
+                            cacheHeight: decodeSize.height,
+                            errorBuilder: (_, __, ___) =>
+                                LocationImage(location: location));
+                      },
+                    )
                   else
                     LocationImage(
                         location: location, borderRadius: BorderRadius.zero),
@@ -1449,22 +1503,6 @@ class _CommentsContent extends StatelessWidget {
   }
 }
 
-class _NewLocationInput {
-  const _NewLocationInput({
-    required this.title,
-    required this.description,
-    required this.category,
-    this.imageBytes,
-    this.imageName,
-  });
-
-  final String title;
-  final String description;
-  final String category;
-  final Uint8List? imageBytes;
-  final String? imageName;
-}
-
 class _LocationEditInput {
   const _LocationEditInput({
     required this.title,
@@ -1827,206 +1865,5 @@ class _RouteCard extends ConsumerWidget {
     return remainingMinutes == 0
         ? '$hours год'
         : '$hours год $remainingMinutes хв';
-  }
-}
-
-class _AddLocationDialog extends StatefulWidget {
-  const _AddLocationDialog();
-
-  @override
-  State<_AddLocationDialog> createState() => _AddLocationDialogState();
-}
-
-class _AddLocationDialogState extends State<_AddLocationDialog> {
-  final _titleController = TextEditingController();
-  final _descriptionController = TextEditingController();
-  final _imagePicker = ImagePicker();
-
-  String? _titleError;
-  Uint8List? _imageBytes;
-  String? _imageName;
-  String? _imageError;
-  bool _isPickingImage = false;
-  String _category = 'general';
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _descriptionController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _pickImage(ImageSource source) async {
-    if (_isPickingImage) return;
-    setState(() {
-      _isPickingImage = true;
-      _imageError = null;
-    });
-
-    try {
-      final image = await _imagePicker.pickImage(
-        source: source,
-        imageQuality: 85,
-        maxWidth: 1920,
-      );
-      if (image == null || !mounted) return;
-      final bytes = await image.readAsBytes();
-      if (!mounted) return;
-      setState(() {
-        _imageBytes = bytes;
-        _imageName = image.name;
-      });
-    } catch (error) {
-      if (mounted) {
-        setState(() => _imageError = 'Не вдалося вибрати фото.');
-      }
-    } finally {
-      if (mounted) setState(() => _isPickingImage = false);
-    }
-  }
-
-  void _save() {
-    final title = _titleController.text.trim();
-    if (title.isEmpty) {
-      setState(() => _titleError = 'Введіть назву місця.');
-      return;
-    }
-
-    Navigator.of(context).pop(
-      _NewLocationInput(
-        title: title,
-        description: _descriptionController.text.trim(),
-        category: _category,
-        imageBytes: _imageBytes,
-        imageName: _imageName,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Нова локація'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleController,
-              autofocus: true,
-              textInputAction: TextInputAction.next,
-              decoration: InputDecoration(
-                labelText: 'Назва',
-                errorText: _titleError,
-              ),
-              onChanged: (_) {
-                if (_titleError != null) {
-                  setState(() => _titleError = null);
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _descriptionController,
-              minLines: 2,
-              maxLines: 4,
-              decoration: const InputDecoration(labelText: 'Опис'),
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              initialValue: _category,
-              isExpanded: true,
-              menuMaxHeight: 360,
-              decoration: const InputDecoration(labelText: 'Категорія'),
-              selectedItemBuilder: (context) => editableLocationCategories
-                  .map((value) => Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          value.label.replaceAll('\n', ' '),
-                          maxLines: 2,
-                          softWrap: true,
-                        ),
-                      ))
-                  .toList(growable: false),
-              items: editableLocationCategories
-                  .map((value) => DropdownMenuItem(
-                        value: value.key,
-                        child: Text(
-                          value.label.replaceAll('\n', ' '),
-                          softWrap: true,
-                        ),
-                      ))
-                  .toList(growable: false),
-              onChanged: _isPickingImage
-                  ? null
-                  : (value) => setState(() => _category = value ?? 'general'),
-            ),
-            const SizedBox(height: 16),
-            if (_imageBytes != null) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.memory(
-                  _imageBytes!,
-                  width: double.infinity,
-                  height: 160,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: _isPickingImage
-                      ? null
-                      : () => setState(() {
-                            _imageBytes = null;
-                            _imageName = null;
-                          }),
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('Видалити фото'),
-                ),
-              ),
-            ],
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _isPickingImage
-                      ? null
-                      : () => _pickImage(ImageSource.gallery),
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('Галерея'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _isPickingImage
-                      ? null
-                      : () => _pickImage(ImageSource.camera),
-                  icon: const Icon(Icons.photo_camera_outlined),
-                  label: const Text('Камера'),
-                ),
-              ],
-            ),
-            if (_isPickingImage) const LinearProgressIndicator(),
-            if (_imageError != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                _imageError!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _isPickingImage ? null : () => Navigator.of(context).pop(),
-          child: const Text('Скасувати'),
-        ),
-        FilledButton(
-          onPressed: _isPickingImage ? null : _save,
-          child: const Text('Зберегти'),
-        ),
-      ],
-    );
   }
 }

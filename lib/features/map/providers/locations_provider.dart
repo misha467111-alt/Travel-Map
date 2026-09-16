@@ -165,6 +165,19 @@ class LocationsRepository {
     );
   }
 
+  /// [imageBytes] must already be the fully normalized upload -- resized,
+  /// EXIF-stripped, JPEG-encoded (see
+  /// `lib/features/map/domain/location_photo_normalizer.dart`), never the
+  /// raw picker/phone output. This method no longer sniffs a format from
+  /// any filename (Phase 2.2A1 removed that entirely, and with it the
+  /// [imageName] parameter): every upload is unconditionally stored as
+  /// `.jpg` / `image/jpeg`, since that is now always what [imageBytes]
+  /// actually contains.
+  ///
+  /// [address]/[amenities]/[openingHours]/[timezone] are optional Create
+  /// Location v2 metadata (Phase 2.2A1 data-path preparation -- no UI
+  /// exposes them yet). Omitting all four reproduces the exact previous
+  /// `create_location_with_xp` call shape.
   Future<void> createLocation({
     required String title,
     required String description,
@@ -172,14 +185,20 @@ class LocationsRepository {
     required double longitude,
     required String category,
     Uint8List? imageBytes,
-    String? imageName,
     String? requestId,
+    String? address,
+    List<String>? amenities,
+    Map<String, dynamic>? openingHours,
+    String? timezone,
   }) async {
     final user = _supabase.auth.currentUser;
     if (user == null) {
       throw StateError('Для додавання локації потрібно увійти в акаунт.');
     }
 
+    // The normalizer targets ~1600px/quality 80, far under this limit in
+    // practice -- kept as a defensive cap on whatever bytes are actually
+    // about to be uploaded, per Phase 2.2A1.
     if (imageBytes != null && imageBytes.lengthInBytes > _maxImageSize) {
       throw const FormatException('Фото має бути не більше 10 МБ.');
     }
@@ -189,14 +208,13 @@ class LocationsRepository {
     String? imageUrl;
     try {
       if (imageBytes != null) {
-        final fileType = _imageType(imageName);
-        uploadedPath = '${user.id}/${const Uuid().v4()}.${fileType.extension}';
+        uploadedPath = '${user.id}/${const Uuid().v4()}.jpg';
         final bucket = _supabase.storage.from(_bucketName);
         await bucket.uploadBinary(
           uploadedPath,
           imageBytes,
-          fileOptions: FileOptions(
-            contentType: fileType.contentType,
+          fileOptions: const FileOptions(
+            contentType: 'image/jpeg',
             upsert: false,
           ),
         );
@@ -213,6 +231,10 @@ class LocationsRepository {
           'p_category': category,
           'p_image_url': imageUrl,
           'p_request_id': requestId,
+          'p_address': address,
+          'p_amenities': amenities,
+          'p_opening_hours': openingHours,
+          'p_timezone': timezone,
         },
       );
       if (uploadedPath != null) {
@@ -222,12 +244,27 @@ class LocationsRepository {
         });
       }
     } catch (_) {
-      if (createdLocationId != null) {
+      // create_location_with_xp inserts with status='pending', which the
+      // general locations_delete RLS policy (owner_id = auth.uid() AND
+      // status IN ('draft','rejected')) does NOT permit deleting -- a
+      // plain client-side DELETE here would silently match zero rows and
+      // leave a dangling 'pending' row with a broken image_url (a real
+      // defect proven during the Phase 2.2A audit). The narrowly-scoped
+      // cleanup_own_pending_location_create_failure RPC exists exactly
+      // for this: it only ever deletes the caller's own still-'pending'
+      // row from this exact request (see its own security contract in
+      // the migration). requestId is required for this call because it's
+      // the capability that scopes cleanup to this specific creation
+      // attempt, not just "any of this user's pending locations."
+      if (createdLocationId != null && requestId != null) {
         try {
-          await _supabase
-              .from('locations')
-              .delete()
-              .eq('id', createdLocationId);
+          await _supabase.rpc<void>(
+            'cleanup_own_pending_location_create_failure',
+            params: {
+              'p_location_id': createdLocationId,
+              'p_request_id': requestId,
+            },
+          );
         } catch (_) {
           // Preserve the original create/photo error.
         }
@@ -286,16 +323,6 @@ class LocationsRepository {
       await _supabase.storage.from(_bucketName).remove(storagePaths);
     }
   }
-
-  static _ImageType _imageType(String? fileName) {
-    final extension = fileName?.split('.').last.toLowerCase();
-    return switch (extension) {
-      'png' => const _ImageType('png', 'image/png'),
-      'webp' => const _ImageType('webp', 'image/webp'),
-      'heic' || 'heif' => const _ImageType('heic', 'image/heic'),
-      _ => const _ImageType('jpg', 'image/jpeg'),
-    };
-  }
 }
 
 class LocationDetailsData {
@@ -308,13 +335,6 @@ class LocationDetailsData {
   final LocationModel location;
   final List<String> photoUrls;
   final List<String> tags;
-}
-
-class _ImageType {
-  const _ImageType(this.extension, this.contentType);
-
-  final String extension;
-  final String contentType;
 }
 
 class LocationsCache {

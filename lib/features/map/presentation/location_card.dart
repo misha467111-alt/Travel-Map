@@ -3,6 +3,36 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_design.dart';
 import '../domain/location_model.dart';
 import '../domain/location_categories.dart';
+import '../domain/location_photo_normalizer.dart'
+    show locationPhotoMaxLongEdgePx;
+
+/// Phase 2.2A1-F: a decode-size hint for a location photo `Image.network`,
+/// bounded by the box it will actually render into and scaled for the
+/// device's pixel ratio so it stays sharp on high-DPI screens -- while
+/// never requesting a decode larger than what's actually stored (the
+/// uploaded JPEG's own long edge is already capped at
+/// [locationPhotoMaxLongEdgePx] by `normalizeLocationPhoto`, so asking
+/// for more would just waste memory decoding pixels that don't exist).
+/// Pure and widget-independent so it's directly unit-testable.
+///
+/// Returns `(null, null)` when [constraints] aren't fully bounded (no
+/// sensible finite target to decode to in that case) -- callers should
+/// simply omit `cacheWidth`/`cacheHeight` in that situation, which is
+/// exactly what a null value does for [Image.network].
+({int? width, int? height}) locationImageDecodeSize({
+  required BoxConstraints constraints,
+  required double devicePixelRatio,
+}) {
+  if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) {
+    return (width: null, height: null);
+  }
+  int physicalPixels(double logical) =>
+      (logical * devicePixelRatio).round().clamp(1, locationPhotoMaxLongEdgePx);
+  return (
+    width: physicalPixels(constraints.maxWidth),
+    height: physicalPixels(constraints.maxHeight),
+  );
+}
 
 class LocationCard extends StatelessWidget {
   const LocationCard(
@@ -175,12 +205,22 @@ class LocationImage extends StatelessWidget {
     return ClipRRect(
       borderRadius: borderRadius,
       child: imageUrl?.isNotEmpty == true
-          ? Image.network(imageUrl!,
-              key: const Key('location_real_image'),
-              width: double.infinity,
-              height: double.infinity,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _placeholder())
+          ? LayoutBuilder(
+              builder: (context, constraints) {
+                final decodeSize = locationImageDecodeSize(
+                  constraints: constraints,
+                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                );
+                return Image.network(imageUrl!,
+                    key: const Key('location_real_image'),
+                    width: double.infinity,
+                    height: double.infinity,
+                    fit: BoxFit.cover,
+                    cacheWidth: decodeSize.width,
+                    cacheHeight: decodeSize.height,
+                    errorBuilder: (_, __, ___) => _placeholder());
+              },
+            )
           : _placeholder(),
     );
   }
