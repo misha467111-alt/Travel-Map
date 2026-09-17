@@ -11,6 +11,7 @@ class SupabaseCheckInRepository implements CheckInRepository {
     required double latitude,
     required double longitude,
     required double accuracyMeters,
+    String? requestId,
   }) async {
     final value =
         await _client.rpc<Map<String, dynamic>>('create_check_in', params: {
@@ -18,6 +19,7 @@ class SupabaseCheckInRepository implements CheckInRepository {
       'user_lat': latitude,
       'user_lng': longitude,
       'gps_accuracy_m': accuracyMeters,
+      if (requestId != null) 'p_request_id': requestId,
     });
     return CheckInResult(
       id: value['check_in_id'] as String,

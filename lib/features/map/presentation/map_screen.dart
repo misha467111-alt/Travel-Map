@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../controllers/profile_controller.dart';
 import '../../notifications/presentation/notifications_screen.dart';
@@ -721,6 +722,11 @@ class _LocationDetailsContentState
   Future<void> _checkIn() async {
     if (_checkingIn || !ref.read(isOnlineProvider)) return;
     setState(() => _checkingIn = true);
+    // Generated once per button press (one logical check-in attempt), not
+    // once per network call -- there is no automatic retry loop here today,
+    // so this single call is the entire attempt. See create_check_in's own
+    // p_request_id contract for what reusing vs. regenerating this means.
+    final requestId = const Uuid().v4();
     try {
       final position = await Geolocator.getCurrentPosition();
       final result =
@@ -729,6 +735,7 @@ class _LocationDetailsContentState
         latitude: position.latitude,
         longitude: position.longitude,
         accuracyMeters: position.accuracy,
+        requestId: requestId,
       );
       await profileController.refreshServerProgress();
       if (mounted) {
