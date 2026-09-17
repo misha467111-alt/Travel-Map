@@ -745,6 +745,94 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     ));
   }
 
+  // ---------------------------------------------------------------------
+  // Sync state (GPS Sync Phase 3E) — route-level `syncStatus` bookkeeping.
+  // Cursors (`lastSyncedPointSeq`/`lastSyncedEventSeq`, above) and
+  // per-waypoint `syncStatus` already had setters; this is the remaining
+  // surface a sync coordinator needs to record its own outcomes.
+  // ---------------------------------------------------------------------
+
+  /// Marks a route as currently being synced. `syncing` is a transient,
+  /// in-flight marker only — see [normalizeStaleSyncingRoutes] for why a
+  /// coordinator must never assume a persisted `syncing` value reflects a
+  /// real in-flight attempt.
+  Future<void> markRouteSyncing({
+    required String ownerId,
+    required String routeId,
+  }) async {
+    await (update(localRecordedRoutes)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(routeId)))
+        .write(LocalRecordedRoutesCompanion(
+      syncStatus: const Value(RouteSyncStatus.syncing),
+      lastSyncAttemptAt: Value(DateTime.now().toUtc()),
+      updatedAt: Value(DateTime.now().toUtc()),
+    ));
+  }
+
+  /// Records the outcome of a sync attempt: [syncStatus] should be one of
+  /// [RouteSyncStatus.notSynced] (retryable failure, or a successful-so-far
+  /// pass on a still-recording/paused route — see the sync coordinator's
+  /// own doc for why `notSynced` is the correct non-terminal value there),
+  /// [RouteSyncStatus.failed] (terminal — do not retry automatically), or
+  /// [RouteSyncStatus.synced] (server-verified complete). [lastSyncError]
+  /// is cleared (set to null) on success and populated on failure.
+  Future<void> recordRouteSyncOutcome({
+    required String ownerId,
+    required String routeId,
+    required String syncStatus,
+    String? lastSyncError,
+  }) async {
+    await (update(localRecordedRoutes)
+          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(routeId)))
+        .write(LocalRecordedRoutesCompanion(
+      syncStatus: Value(syncStatus),
+      lastSyncAttemptAt: Value(DateTime.now().toUtc()),
+      lastSyncError: Value(lastSyncError),
+      updatedAt: Value(DateTime.now().toUtc()),
+    ));
+  }
+
+  /// Resets any route stuck in [RouteSyncStatus.syncing] back to
+  /// [RouteSyncStatus.notSynced]. `syncing` can only ever mean "a sync
+  /// attempt is currently in flight in this process" — if the app/process
+  /// died mid-sync, a persisted `syncing` value is stale, not evidence of
+  /// real progress, and must never be trusted as-is on the next run.
+  ///
+  /// Deliberately touches only `syncStatus`/`updatedAt`: point/event
+  /// cursors, waypoint sync statuses, `lastSyncAttemptAt`, and
+  /// `lastSyncError` are left exactly as they were — actual upload
+  /// progress already durably committed server-side (reflected in the
+  /// cursors) must never be discarded just because the process died
+  /// before the *next* attempt could record its own outcome.
+  Future<void> normalizeStaleSyncingRoutes({required String ownerId}) async {
+    await (update(localRecordedRoutes)
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.syncStatus.equals(RouteSyncStatus.syncing)))
+        .write(const LocalRecordedRoutesCompanion(
+      syncStatus: Value(RouteSyncStatus.notSynced),
+    ));
+  }
+
+  /// Routes eligible for an *opportunistic* sync pass (app init, app
+  /// foreground/resume, connectivity regained, recording completion):
+  /// not discarded, and not already [RouteSyncStatus.synced]/
+  /// [RouteSyncStatus.failed]. `failed` is deliberately excluded here —
+  /// a terminal failure must not be silently retried forever by an
+  /// automatic pass; only an explicit user-initiated retry may attempt a
+  /// `failed` route again (see the sync coordinator's `retryRoute`).
+  Future<List<LocalRecordedRoute>> getRoutesNeedingAutoSync({
+    required String ownerId,
+  }) async {
+    final rows = await (select(localRecordedRoutes)
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.status.equals(RecordedRouteStatus.discarded).not() &
+              t.syncStatus.equals(RouteSyncStatus.notSynced)))
+        .get();
+    return rows.map(_normalizeRoute).toList(growable: false);
+  }
+
   Future<int> _nextSeq(TableInfo table, String recordedRouteId) async {
     if (identical(table, localRoutePoints)) {
       final maxSeq = await (selectOnly(localRoutePoints)
