@@ -12,7 +12,13 @@ import '../models/app_models.dart';
 SupabaseClient get supabase => Supabase.instance.client;
 const _oauthRedirectUri = 'io.supabase.travelmap://login-callback/';
 
+typedef ProfileFetcher = Future<Map<String, dynamic>?> Function(String userId);
+
 class ProfileController extends ChangeNotifier {
+  ProfileController({ProfileFetcher? profileFetcher})
+      : _profileFetcher = profileFetcher;
+
+  final ProfileFetcher? _profileFetcher;
   StreamSubscription<AuthState>? _authSubscription;
   String name = 'Експедитор';
   String userId = '';
@@ -23,6 +29,8 @@ class ProfileController extends ChangeNotifier {
   int invitesLeft = 1;
   bool isAuthorized = false;
   bool needsInviteStep = false;
+  bool isProfileLoading = false;
+  String? profileLoadError;
   bool isOfflineMode = false;
   bool isDeveloper = false;
 
@@ -82,9 +90,7 @@ class ProfileController extends ChangeNotifier {
     if (session != null) {
       await _handleSession(session);
     } else {
-      isAuthorized = false;
-      needsInviteStep = false;
-      notifyListeners();
+      _setSignedOutState();
     }
   }
 
@@ -93,27 +99,48 @@ class ProfileController extends ChangeNotifier {
       if (data.session != null) {
         await _handleSession(data.session!);
       } else if (data.event == AuthChangeEvent.signedOut) {
-        isAuthorized = false;
-        needsInviteStep = false;
-        notifyListeners();
+        _setSignedOutState();
       }
     });
   }
 
   Future<void> _handleSession(Session session) async {
-    userId = session.user.id;
-    final meta = session.user.userMetadata;
+    await _loadAuthenticatedProfile(
+      authenticatedUserId: session.user.id,
+      userMetadata: session.user.userMetadata,
+    );
+  }
+
+  Future<Map<String, dynamic>?> _fetchProfile(String authenticatedUserId) {
+    return supabase
+        .from('profiles')
+        .select()
+        .eq('id', authenticatedUserId)
+        .maybeSingle();
+  }
+
+  Future<void> _loadAuthenticatedProfile({
+    required String authenticatedUserId,
+    Map<String, dynamic>? userMetadata,
+  }) async {
+    userId = authenticatedUserId;
+    final meta = userMetadata;
     final fullName = meta?['full_name'];
     if (fullName is String && fullName.trim().isNotEmpty) {
       name = fullName.trim();
     }
 
+    // Cached authorization is not enough to open protected content for a
+    // live session. Until the server profile has loaded successfully, the
+    // access decision is unknown: neither authorized nor invite-required.
+    isAuthorized = false;
+    needsInviteStep = false;
+    isProfileLoading = true;
+    profileLoadError = null;
+    notifyListeners();
+
     try {
-      final res = await supabase
-          .from('profiles')
-          .select()
-          .eq('id', userId)
-          .maybeSingle();
+      final res = await (_profileFetcher ?? _fetchProfile)(userId);
       if (res != null) {
         invitedBy = res['invited_by']?.toString() ?? '';
         xp = res['xp'] ?? 10;
@@ -130,8 +157,16 @@ class ProfileController extends ChangeNotifier {
         debugPrint('Could not load OAuth user profile: $error');
       }
       isAuthorized = false;
-      needsInviteStep = true;
+      needsInviteStep = false;
+      profileLoadError =
+          'Не вдалося завантажити профіль. Перевірте з’єднання та спробуйте ще раз.';
+      isProfileLoading = false;
+      notifyListeners();
+      return;
     }
+
+    isProfileLoading = false;
+    profileLoadError = null;
 
     inviteCode = userId.length >= 6
         ? userId.substring(0, 6).toUpperCase()
@@ -142,6 +177,36 @@ class ProfileController extends ChangeNotifier {
     await prefs.setBool('pref_auth', isAuthorized);
     await prefs.setBool('pref_needs_invite', needsInviteStep);
     fetchAllData();
+    notifyListeners();
+  }
+
+  /// Retries only the trusted profile lookup for the current live session.
+  /// No automatic loop is used; the user explicitly initiates each retry.
+  Future<void> retryProfileLoad() async {
+    final session = supabase.auth.currentSession;
+    if (session == null) {
+      _setSignedOutState();
+      return;
+    }
+    await _handleSession(session);
+  }
+
+  @visibleForTesting
+  Future<void> handleAuthenticatedUserForTesting({
+    required String authenticatedUserId,
+    Map<String, dynamic>? userMetadata,
+  }) {
+    return _loadAuthenticatedProfile(
+      authenticatedUserId: authenticatedUserId,
+      userMetadata: userMetadata,
+    );
+  }
+
+  void _setSignedOutState() {
+    isAuthorized = false;
+    needsInviteStep = false;
+    isProfileLoading = false;
+    profileLoadError = null;
     notifyListeners();
   }
 
@@ -279,9 +344,7 @@ class ProfileController extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    isAuthorized = false;
-    needsInviteStep = false;
-    notifyListeners();
+    _setSignedOutState();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('pref_auth', false);
     await prefs.setBool('pref_needs_invite', false);

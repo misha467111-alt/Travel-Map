@@ -10,6 +10,47 @@ class LoginScreen extends StatelessWidget {
       body: ListenableBuilder(
         listenable: profileController,
         builder: (context, _) {
+          if (profileController.isProfileLoading) {
+            return const Center(
+              child: CircularProgressIndicator(color: Colors.amber),
+            );
+          }
+
+          if (profileController.profileLoadError case final error?) {
+            return Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Icon(Icons.cloud_off, size: 64, color: Colors.amber),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Не вдалося перевірити профіль',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    error,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: profileController.retryProfileLoad,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Спробувати ще раз'),
+                  ),
+                ],
+              ),
+            );
+          }
+
           return Padding(
             padding: const EdgeInsets.all(24.0),
             child: Column(
