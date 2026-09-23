@@ -33,6 +33,7 @@ import 'map_categories_sheet.dart';
 import '../../navigation/presentation/scalable_locations_screen.dart';
 import 'create_location_screen.dart';
 import 'location_pick_screen.dart';
+import '../../gps/presentation/gps_recording_map_screen.dart';
 
 /// Shown after a successful [LocationsRepository.createLocation] call.
 /// Deliberately does not claim the location is already public: every new
@@ -396,13 +397,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                             mode: ScalableLocationListMode.adventure)),
                   ),
                 ),
-                additionalToolbarActions: _MapQuickActions(
+                additionalToolbarActions: MapQuickActions(
                   onAdd: () => _pickLocationThenCreate(
                     context,
                     ref,
                     initialTarget: LatLng(
                       currentPosition.latitude,
                       currentPosition.longitude,
+                    ),
+                  ),
+                  onRecordRoute: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      fullscreenDialog: true,
+                      builder: (_) => const GpsRecordingMapScreen(),
                     ),
                   ),
                 ),
@@ -521,9 +528,27 @@ class _NotificationsButton extends ConsumerWidget {
   }
 }
 
-class _MapQuickActions extends StatelessWidget {
-  const _MapQuickActions({required this.onAdd});
+/// The Map's [additionalToolbarActions] slot. Public (not
+/// underscore-private) -- unlike this file's other private helpers --
+/// specifically so a widget test can pump it in isolation without
+/// mounting the full [MapScreen] and its provider graph (same rationale
+/// as [locationPendingReviewMessage] above and the public
+/// `LocationDetailsContent`/`MapLocationPreview` in this same file).
+@visibleForTesting
+class MapQuickActions extends StatelessWidget {
+  const MapQuickActions({
+    super.key,
+    required this.onAdd,
+    required this.onRecordRoute,
+  });
+
   final VoidCallback onAdd;
+
+  /// Phase 4D: opens the dedicated GPS recording mode
+  /// ([GpsRecordingMapScreen]) -- the only Map entry point into GPS
+  /// recording. Never gated on connectivity: recording works fully
+  /// offline.
+  final VoidCallback onRecordRoute;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -537,12 +562,21 @@ class _MapQuickActions extends StatelessWidget {
                   builder: (_) => const ScalableLocationsScreen(
                       mode: ScalableLocationListMode.nearby)))),
           _action(context, 'Додати місце', Icons.add, onAdd),
+          _action(context, 'Записати маршрут', Icons.fiber_manual_record,
+              onRecordRoute,
+              buttonKey: const Key('gps_record_route_action')),
         ],
       );
 
-  Widget _action(BuildContext context, String label, IconData icon,
-          VoidCallback onPressed) =>
+  Widget _action(
+    BuildContext context,
+    String label,
+    IconData icon,
+    VoidCallback onPressed, {
+    Key? buttonKey,
+  }) =>
       MapToolbarButton(
+        buttonKey: buttonKey,
         tooltip: label,
         icon: icon,
         onPressed: onPressed,

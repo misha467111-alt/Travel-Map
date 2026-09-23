@@ -12,6 +12,7 @@ import '../../achievements/presentation/achievements_tab.dart';
 import '../../friends/domain/friend_models.dart';
 import '../../friends/presentation/friends_screen.dart';
 import '../../friends/providers/friends_provider.dart';
+import '../../gps/presentation/gps_active_recording_banner.dart';
 import '../../map/domain/location_model.dart';
 import '../../map/domain/location_query.dart';
 import '../../map/presentation/map_screen.dart';
@@ -56,39 +57,48 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       data: mediaQuery.copyWith(textScaler: TextScaler.linear(effectiveScale)),
       child: Scaffold(
         body: IndexedStack(index: _index, children: _pages),
-        bottomNavigationBar: _index == 0
-            ? _MapBottomNavigation(
-                onSelected: (value) => setState(() => _index = value),
-              )
-            : NavigationBar(
-                height: _index == 0 ? 60 : 72,
-                indicatorColor: Colors.transparent,
-                selectedIndex: _index,
-                onDestinationSelected: (value) =>
-                    setState(() => _index = value),
-                destinations: const [
-                  NavigationDestination(
-                      icon: Icon(Icons.map_outlined),
-                      selectedIcon: Icon(Icons.map),
-                      label: 'Карта'),
-                  NavigationDestination(
-                      icon: Icon(Icons.explore_outlined),
-                      selectedIcon: Icon(Icons.explore),
-                      label: 'Відкривай'),
-                  NavigationDestination(
-                      icon: Icon(Icons.person_pin_circle_outlined),
-                      selectedIcon: Icon(Icons.person_pin_circle),
-                      label: 'Пригода'),
-                  NavigationDestination(
-                      icon: Icon(Icons.route_outlined),
-                      selectedIcon: Icon(Icons.route),
-                      label: 'Маршрути'),
-                  NavigationDestination(
-                      icon: Icon(Icons.person_outline),
-                      selectedIcon: Icon(Icons.person),
-                      label: 'Профіль'),
-                ],
-              ),
+        // The active-recording banner lives outside the tab IndexedStack,
+        // above the existing 5-tab bar -- it is not a sixth tab, and it
+        // stays visible/consistent no matter which tab is selected.
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const GpsActiveRecordingBanner(),
+            _index == 0
+                ? _MapBottomNavigation(
+                    onSelected: (value) => setState(() => _index = value),
+                  )
+                : NavigationBar(
+                    height: _index == 0 ? 60 : 72,
+                    indicatorColor: Colors.transparent,
+                    selectedIndex: _index,
+                    onDestinationSelected: (value) =>
+                        setState(() => _index = value),
+                    destinations: const [
+                      NavigationDestination(
+                          icon: Icon(Icons.map_outlined),
+                          selectedIcon: Icon(Icons.map),
+                          label: 'Карта'),
+                      NavigationDestination(
+                          icon: Icon(Icons.explore_outlined),
+                          selectedIcon: Icon(Icons.explore),
+                          label: 'Відкривай'),
+                      NavigationDestination(
+                          icon: Icon(Icons.person_pin_circle_outlined),
+                          selectedIcon: Icon(Icons.person_pin_circle),
+                          label: 'Пригода'),
+                      NavigationDestination(
+                          icon: Icon(Icons.route_outlined),
+                          selectedIcon: Icon(Icons.route),
+                          label: 'Маршрути'),
+                      NavigationDestination(
+                          icon: Icon(Icons.person_outline),
+                          selectedIcon: Icon(Icons.person),
+                          label: 'Профіль'),
+                    ],
+                  ),
+          ],
+        ),
       ),
     );
   }
