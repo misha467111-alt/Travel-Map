@@ -24,9 +24,9 @@ class GpsRecordingStatusCard extends StatelessWidget {
   final GpsRecordingUiState uiState;
 
   /// `null` until a route id exists / its sync row hasn't loaded yet —
-  /// the caller ([GpsRecordingScreen]) is responsible for resolving this
-  /// via the existing `gpsRouteSyncStateProvider`; this widget never
-  /// watches a provider itself.
+  /// the caller is responsible for resolving this via the existing
+  /// `gpsRouteSyncStateProvider`; this widget never watches a provider
+  /// itself.
   final GpsSyncUiState? sync;
   final VoidCallback? onRetrySync;
   final DateTime Function() now;

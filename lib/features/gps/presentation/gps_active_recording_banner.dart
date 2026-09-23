@@ -57,9 +57,9 @@ bool gpsActiveRecordingIndicatorVisible(GpsRecordingState state) {
 /// existing 5-tab bar -- it does not add a tab, and it is visible from
 /// every tab since it lives outside the tab `IndexedStack`.
 ///
-/// Thin outer wrapper only (same shape as `GpsRecordingMapScreen`/
-/// `GpsRecordingScreen`'s own auth-gated wrappers): resolves the owner id
-/// and delegates everything else to [GpsActiveRecordingBannerBody], which
+/// Thin outer wrapper only (same shape as `GpsRecordingMapScreen`'s own
+/// auth-gated wrapper): resolves the owner id and delegates everything
+/// else to [GpsActiveRecordingBannerBody], which
 /// is what tests actually exercise (a live Supabase session cannot be
 /// simulated in a widget test).
 class GpsActiveRecordingBanner extends StatelessWidget {

@@ -41,12 +41,10 @@ const _fallbackMapTarget = LatLng(50.4501, 30.5234);
 
 /// Phase 4D — the dedicated, full-screen GPS recording mode reached from
 /// Map's "Записати маршрут" toolbar action. Thin outer wrapper only (same
-/// shape as `GpsRecordingScreen`/`MapScreen`'s own auth-gated wrappers):
-/// resolves the owner id and delegates everything else to
-/// [GpsRecordingMapBody], which is what tests actually exercise (a live
-/// Supabase session cannot be simulated in a widget test, matching the
-/// exact reasoning `GpsRecordingScreen` itself was already built with in
-/// Phase 4C).
+/// shape as `MapScreen`'s own auth-gated wrapper): resolves the owner id
+/// and delegates everything else to [GpsRecordingMapBody], which is what
+/// tests actually exercise (a live Supabase session cannot be simulated
+/// in a widget test).
 class GpsRecordingMapScreen extends ConsumerWidget {
   const GpsRecordingMapScreen({super.key});
 
@@ -61,8 +59,7 @@ class GpsRecordingMapScreen extends ConsumerWidget {
 
     final stateAsync = ref.watch(gpsRecordingStateProvider(userId));
     final controller = ref.read(gpsRecordingControllerProvider(userId));
-    // Constructed alongside the recording controller, matching
-    // GpsRecordingScreen's own established rationale: a sync pass is
+    // Constructed alongside the recording controller: a sync pass is
     // always attempted whenever a GPS recording surface is open.
     final syncCoordinator = ref.read(gpsSyncCoordinatorProvider(userId));
 
@@ -375,6 +372,3 @@ class _LiveTrackMap extends ConsumerWidget {
     );
   }
 }
-
-@visibleForTesting
-const gpsRecordingMapFallbackTarget = _fallbackMapTarget;
