@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -16,9 +17,16 @@ class SettingsScreen extends ConsumerWidget {
           offlineMode: profileController.isOfflineMode,
           onOfflineChanged: profileController.setOfflineMode,
           onLogout: () => _logout(context, ref),
-          onOpenGpsDebug: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const GpsRecordingDebugScreen()),
-          ),
+          // C4 — release users must never reach the GPS debug surface;
+          // `SettingsPage` already hides the whole "РОЗРОБКА" section
+          // whenever this is null, so gating it here at the source is
+          // the entire fix.
+          onOpenGpsDebug: kDebugMode
+              ? () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                        builder: (_) => const GpsRecordingDebugScreen()),
+                  )
+              : null,
         ),
       );
 
@@ -52,9 +60,12 @@ class SettingsPage extends StatelessWidget {
   final ValueChanged<bool> onOfflineChanged;
   final VoidCallback onLogout;
 
-  /// GPS-3's minimal developer/test surface entry point. Nullable so
+  /// GPS-3's minimal developer/test surface entry point. Nullable both so
   /// existing tests constructing SettingsPage directly (without this
-  /// callback) keep working unchanged.
+  /// callback) keep working unchanged, and so the real [SettingsScreen]
+  /// (C4) can pass `null` in release builds — the whole "РОЗРОБКА"
+  /// section below renders only when this is non-null, so a release
+  /// build shows no debug entry and no empty development section.
   final VoidCallback? onOpenGpsDebug;
 
   @override

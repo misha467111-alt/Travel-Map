@@ -35,4 +35,22 @@ void main() {
 
     expect(find.byKey(const Key('open_production_settings')), findsOneWidget);
   });
+
+  testWidgets(
+      'C4: SettingsPage with onOpenGpsDebug null renders no debug tile and '
+      'no empty РОЗРОБКА section (release gating)', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SettingsPage(
+          offlineMode: false,
+          onOfflineChanged: (_) {},
+          onLogout: () {},
+          onOpenGpsDebug: null,
+        ),
+      ),
+    );
+
+    expect(find.byKey(const Key('settings_gps_debug')), findsNothing);
+    expect(find.text('РОЗРОБКА'), findsNothing);
+  });
 }
