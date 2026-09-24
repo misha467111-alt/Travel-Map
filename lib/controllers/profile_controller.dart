@@ -1,13 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-
-import '../models/app_models.dart';
 
 SupabaseClient get supabase => Supabase.instance.client;
 const _oauthRedirectUri = 'io.supabase.travelmap://login-callback/';
@@ -24,7 +20,6 @@ class ProfileController extends ChangeNotifier {
   String userId = '';
   String inviteCode = '';
   String invitedBy = '';
-  String localAvatarPath = '';
   int xp = 10;
   int invitesLeft = 1;
   bool isAuthorized = false;
@@ -34,50 +29,11 @@ class ProfileController extends ChangeNotifier {
   bool isOfflineMode = false;
   bool isDeveloper = false;
 
-  int get createdLocationsCount =>
-      cachedLocations.where((location) => location.authorId == userId).length;
-
   // ОЬОУ ТУТ ВОНИ МАЮТЬ БУТИ:
   bool isSigningIn = false;
   String? authError;
 
   int lastLevelMilestone = 0;
-
-  List<String> savedLocationIds = [];
-  List<String> savedRouteIds = [];
-  List<String> offlineLocationIds = [];
-  List<String> offlineRouteIds = [];
-
-  List<LocationPreview> cachedLocations = [];
-  List<CustomRouteItem> cachedAllRoutes = [];
-  List<Map<String, dynamic>> cachedAllUsers = [];
-  bool isLoadingData = false;
-
-  Future<void> fetchAllData() async {
-    if (isLoadingData) return;
-    isLoadingData = true;
-    try {
-      final locationRows = await supabase
-          .from('locations')
-          .select()
-          .order('created_at', ascending: false)
-          .limit(300);
-      if ((locationRows as List).isNotEmpty) {
-        cachedLocations = locationRows
-            .map((d) => LocationPreview.fromLocationJson(d))
-            .toList();
-      } else {
-        cachedLocations = const <LocationPreview>[];
-      }
-
-      final usersRes = await supabase.from('users').select().limit(50);
-      if ((usersRes as List).isNotEmpty) {
-        cachedAllUsers = List<Map<String, dynamic>>.from(usersRes);
-      }
-    } catch (_) {}
-    isLoadingData = false;
-    notifyListeners();
-  }
 
   bool _initialized = false;
   Future<void> initialize() async {
@@ -176,7 +132,6 @@ class ProfileController extends ChangeNotifier {
     await prefs.setString('pref_name', name);
     await prefs.setBool('pref_auth', isAuthorized);
     await prefs.setBool('pref_needs_invite', needsInviteStep);
-    fetchAllData();
     notifyListeners();
   }
 
@@ -230,7 +185,6 @@ class ProfileController extends ChangeNotifier {
   Future<void> _loadLocal() async {
     final prefs = await SharedPreferences.getInstance();
     name = prefs.getString('pref_name') ?? 'Експедитор';
-    localAvatarPath = prefs.getString('pref_avatar') ?? '';
     xp = prefs.getInt('pref_xp') ?? 10;
     userId = prefs.getString('pref_uid') ?? '';
     invitesLeft = prefs.getInt('pref_invites') ?? 1;
@@ -240,11 +194,6 @@ class ProfileController extends ChangeNotifier {
     isOfflineMode = prefs.getBool('pref_offline') ?? false;
     isDeveloper = prefs.getBool('pref_is_dev') ?? false;
     lastLevelMilestone = prefs.getInt('pref_level_milestone') ?? 1;
-    savedLocationIds = prefs.getStringList('pref_saved_locations') ?? [];
-    savedRouteIds = prefs.getStringList('pref_saved_routes') ?? [];
-    offlineLocationIds = prefs.getStringList('pref_offline_locations') ?? [];
-    offlineRouteIds = prefs.getStringList('pref_offline_routes') ?? [];
-    cachedLocations = const <LocationPreview>[];
 
     if (userId.isEmpty) {
       userId = const Uuid().v4();
@@ -254,7 +203,6 @@ class ProfileController extends ChangeNotifier {
         ? userId.substring(0, 6).toUpperCase()
         : const Uuid().v4().substring(0, 6).toUpperCase();
 
-    fetchAllData();
     notifyListeners();
   }
 
@@ -326,7 +274,6 @@ class ProfileController extends ChangeNotifier {
     await prefs.setBool('pref_is_dev', isDeveloper);
     await prefs.setInt('pref_invites', invitesLeft);
 
-    fetchAllData();
     return true;
   }
 
@@ -353,65 +300,12 @@ class ProfileController extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> updateName(String newName) async {
-    if (newName.trim().isEmpty) return;
-    name = newName.trim();
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('pref_name', name);
-    try {
-      await supabase
-          .from('profiles')
-          .update({'name': name, 'display_name': name}).eq('id', userId);
-    } catch (_) {}
-  }
-
-  Future<void> updateAvatar(String newPath) async {
-    localAvatarPath = newPath;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('pref_avatar', localAvatarPath);
-  }
-
   Future<void> setOfflineMode(bool value) async {
     if (isOfflineMode == value) return;
     isOfflineMode = value;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('pref_offline', value);
-  }
-
-  Future<void> toggleSaveLocation(String id) async {
-    if (savedLocationIds.contains(id)) {
-      savedLocationIds.remove(id);
-    } else {
-      savedLocationIds.add(id);
-    }
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('pref_saved_locations', savedLocationIds);
-  }
-
-  Future<void> toggleOfflineLocation(String id) async {
-    if (offlineLocationIds.contains(id)) {
-      offlineLocationIds.remove(id);
-    } else {
-      offlineLocationIds.add(id);
-    }
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('pref_offline_locations', offlineLocationIds);
-  }
-
-  Future<void> toggleOfflineRoute(String id) async {
-    if (offlineRouteIds.contains(id)) {
-      offlineRouteIds.remove(id);
-    } else {
-      offlineRouteIds.add(id);
-    }
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('pref_offline_routes', offlineRouteIds);
   }
 
   Future<void> refreshServerProgress() async {
@@ -438,13 +332,6 @@ class ProfileController extends ChangeNotifier {
   void dispose() {
     _authSubscription?.cancel();
     super.dispose();
-  }
-
-  ImageProvider? getAvatarImage() {
-    if (localAvatarPath.isNotEmpty && File(localAvatarPath).existsSync()) {
-      return FileImage(File(localAvatarPath));
-    }
-    return null;
   }
 }
 
