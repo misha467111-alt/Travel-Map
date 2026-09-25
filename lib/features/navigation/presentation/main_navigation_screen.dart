@@ -7,11 +7,8 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../controllers/profile_controller.dart';
-import '../../../providers/chat_provider.dart';
 import '../../achievements/presentation/achievements_tab.dart';
-import '../../friends/domain/friend_models.dart';
 import '../../friends/presentation/friends_screen.dart';
-import '../../friends/providers/friends_provider.dart';
 import '../../gps/presentation/gps_active_recording_banner.dart';
 import '../../map/domain/location_model.dart';
 import '../../map/domain/location_query.dart';
@@ -20,7 +17,6 @@ import '../../map/presentation/map_reference_icons.dart';
 import '../../map/presentation/location_card.dart';
 import '../../map/providers/locations_provider.dart';
 import '../../map/providers/map_provider.dart';
-import '../../map/providers/route_provider.dart';
 import '../../notifications/presentation/notifications_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../profile/presentation/saved_screen.dart';
@@ -541,66 +537,6 @@ class _LocationListCard extends ConsumerWidget {
   }
 }
 
-// ignore: unused_element
-class _RoutesScreen extends ConsumerWidget {
-  const _RoutesScreen();
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final route = ref.watch(routeProvider);
-    return Scaffold(
-      appBar: AppBar(
-          title: const Text('Маршрути'), actions: const [_MoreMenuButton()]),
-      body: ref.watch(fetchLocationsProvider).when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (error, _) => Center(
-                child: Text('Не вдалося завантажити точки маршрутів: $error')),
-            data: (items) =>
-                ListView(padding: const EdgeInsets.all(16), children: [
-              if (route.status != RouteStatus.idle)
-                Card(
-                  child: ListTile(
-                    leading: Icon(route.status == RouteStatus.success
-                        ? Icons.route
-                        : route.status == RouteStatus.failure
-                            ? Icons.error_outline
-                            : Icons.hourglass_top),
-                    title: Text(route.status == RouteStatus.success
-                        ? 'Активний маршрут'
-                        : route.status == RouteStatus.failure
-                            ? 'Маршрут не побудовано'
-                            : 'Будуємо маршрут…'),
-                    subtitle: Text(route.status == RouteStatus.success
-                        ? '${LocationCard.formatDistance(route.distanceMeters ?? 0)} · ${((route.durationSeconds ?? 0) / 60).round()} хв'
-                        : route.errorMessage ?? 'Зачекайте'),
-                    trailing: IconButton(
-                      tooltip: 'Скинути маршрут',
-                      onPressed: () => ref.read(routeProvider.notifier).clear(),
-                      icon: const Icon(Icons.close),
-                    ),
-                  ),
-                ),
-              const Card(
-                  child: ListTile(
-                      leading: Icon(Icons.info_outline),
-                      title: Text('Побудова маршруту'),
-                      subtitle: Text(
-                          'Оберіть локацію та натисніть «Побудувати маршрут» у її деталях.'))),
-              ...items.take(20).map((item) => ListTile(
-                    leading: const Icon(Icons.place_outlined),
-                    title: Text(item.title),
-                    subtitle: Text(item.category),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () =>
-                        Navigator.of(context).push(MaterialPageRoute<void>(
-                      builder: (_) => LocationDetailsScreen(location: item),
-                    )),
-                  )),
-            ]),
-          ),
-    );
-  }
-}
-
 class _MoreMenuButton extends StatelessWidget {
   const _MoreMenuButton();
   @override
@@ -759,39 +695,6 @@ class _InvitesScreenState extends State<_InvitesScreen> {
       );
 }
 
-// Legacy implementation retained for dependency safety; canonical entry uses SettingsScreen.
-// ignore: unused_element
-class _SettingsScreen extends StatefulWidget {
-  const _SettingsScreen();
-  @override
-  State<_SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends State<_SettingsScreen> {
-  @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Налаштування')),
-      body: ListView(children: [
-        SwitchListTile(
-            value: profileController.isOfflineMode,
-            onChanged: (value) =>
-                setState(() => profileController.isOfflineMode = value),
-            secondary: const Icon(Icons.offline_bolt_outlined),
-            title: const Text('Офлайн-режим'),
-            subtitle: const Text(
-                'Кеш локацій використовується автоматично без мережі.')),
-        ListTile(
-            leading: const Icon(Icons.security_outlined),
-            title: const Text('Модерація'),
-            subtitle: const Text(
-                'Нові локації проходять production moderation workflow.')),
-        ListTile(
-            leading: const Icon(Icons.logout),
-            title: const Text('Вийти'),
-            onTap: profileController.logout),
-      ]));
-}
-
 class _TopTravelersScreen extends StatelessWidget {
   const _TopTravelersScreen();
   Future<List<Map<String, dynamic>>> _load() async => Supabase.instance.client
@@ -873,84 +776,4 @@ class _TopTravelersScreen extends StatelessWidget {
                     ),
                 ]);
           }));
-}
-
-// Legacy implementation retained for dependency safety; canonical entry uses ChatsScreen.
-// ignore: unused_element
-class _ChatsScreen extends ConsumerWidget {
-  const _ChatsScreen();
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-      appBar: AppBar(title: const Text('Чати')),
-      body: ref.watch(acceptedFriendsProvider).when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) =>
-                Center(child: Text('Не вдалося завантажити чати: $e')),
-            data: (friends) => friends.isEmpty
-                ? const Center(child: Text('Додайте друга, щоб почати чат'))
-                : ListView(
-                    children: friends
-                        .map((friend) => ListTile(
-                            leading:
-                                const CircleAvatar(child: Icon(Icons.person)),
-                            title: Text(friend.name),
-                            onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        _ChatScreen(friend: friend)))))
-                        .toList()),
-          ));
-}
-
-class _ChatScreen extends ConsumerStatefulWidget {
-  const _ChatScreen({required this.friend});
-  final FriendProfile friend;
-  @override
-  ConsumerState<_ChatScreen> createState() => _ChatScreenState();
-}
-
-class _ChatScreenState extends ConsumerState<_ChatScreen> {
-  final _controller = TextEditingController();
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    final text = _controller.text;
-    _controller.clear();
-    await ref.read(chatServiceProvider).sendMessage(widget.friend.id, text);
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: Text(widget.friend.name)),
-      body: Column(children: [
-        Expanded(
-            child: ref.watch(chatStreamProvider(widget.friend.id)).when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(child: Text('$e')),
-                data: (rows) => ListView(
-                    padding: const EdgeInsets.all(12),
-                    children: rows
-                        .map((row) => Card(
-                            child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Text((row['text'] ?? '').toString()))))
-                        .toList()))),
-        SafeArea(
-            child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Row(children: [
-                  Expanded(
-                      child: TextField(
-                          controller: _controller,
-                          decoration: const InputDecoration(
-                              hintText: 'Повідомлення',
-                              border: OutlineInputBorder()))),
-                  IconButton(onPressed: _send, icon: const Icon(Icons.send))
-                ]))),
-      ]));
 }

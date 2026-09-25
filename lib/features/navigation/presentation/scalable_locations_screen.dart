@@ -184,48 +184,6 @@ class _ScalableLocationsScreenState
     );
   }
 
-  // ignore: unused_element
-  Widget _legacyRoutesBody() => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text('Активний маршрут',
-              style: Theme.of(context).textTheme.titleLarge),
-          Card(
-              child: ListTile(
-            leading: const Icon(Icons.navigation_outlined),
-            title: const Text('Плануйте наступну подорож'),
-            subtitle: const Text('Оберіть місце на карті та побудуйте маршрут'),
-            trailing: FilledButton(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content:
-                        Text('Оберіть місце на карті, щоб створити маршрут')),
-              ),
-              child: const Text('Створити'),
-            ),
-          )),
-          const SizedBox(height: 12),
-          Text('Збережені маршрути',
-              style: Theme.of(context).textTheme.titleLarge),
-          const Card(
-              child: ListTile(
-            leading: Icon(Icons.bookmark_outline),
-            title: Text('Поки немає збережених маршрутів'),
-            subtitle: Text('Ваші маршрути з’являться тут'),
-          )),
-          const SizedBox(height: 12),
-          Text('Останні напрямки',
-              style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 4),
-          ..._items.map((location) => _BoundedLocationCard(location: location)),
-          if (_loading) const Center(child: CircularProgressIndicator()),
-          if (!_loading && _hasMore)
-            FilledButton.tonal(
-                onPressed: () => _loadPage(reset: false),
-                child: const Text('Показати ще')),
-        ],
-      );
-
   Widget _discoverBody() => _list(
         _items,
         loading: _loading,
