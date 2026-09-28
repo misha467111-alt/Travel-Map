@@ -732,16 +732,83 @@ class LocationDetailsScreen extends ConsumerWidget {
   }
 }
 
+/// Matches `LocationsRepository.updateLocation`'s exact signature -- see
+/// [LocationDetailsContent.updateLocationOverride].
+typedef UpdateLocationCall = Future<void> Function({
+  required String locationId,
+  required String title,
+  required String description,
+  required String category,
+});
+
+/// Matches `LocationsRepository.deleteLocation`'s exact signature -- see
+/// [LocationDetailsContent.deleteLocationOverride].
+typedef DeleteLocationCall = Future<void> Function(String locationId);
+
+/// Owner Location Management Phase 1: an owner may manage their own
+/// location only while the backend itself would actually allow it --
+/// `locations_update`/`locations_delete` RLS and `update_own_location`
+/// all restrict edit/delete to `owner_id = auth.uid() AND status IN
+/// ('draft', 'rejected')` (confirmed by the read-only backend audit this
+/// phase followed). This UI gate is UX only, never a substitute for that
+/// backend enforcement -- an approved/pending location remains
+/// unmodifiable server-side even if this function were bypassed.
+///
+/// Public and pure so it can be unit-tested directly instead of faking a
+/// live Supabase session inside a widget test, matching this codebase's
+/// existing precedent for `Supabase.instance.client.auth.currentUser`
+/// -coupled logic (see `blockingActiveRecordingIdFor` /
+/// `gps_logout_guard_test.dart`).
+@visibleForTesting
+bool canManageLocationOwnership({
+  required String? currentUserId,
+  required LocationModel location,
+}) {
+  if (currentUserId == null || currentUserId != location.userId) return false;
+  return location.status == 'draft' || location.status == 'rejected';
+}
+
 class LocationDetailsContent extends ConsumerStatefulWidget {
-  const LocationDetailsContent(
-      {required this.location,
-      required this.onBuildRoute,
-      this.showRouteStatus = false,
-      super.key});
+  const LocationDetailsContent({
+    required this.location,
+    required this.onBuildRoute,
+    this.showRouteStatus = false,
+    @visibleForTesting this.updateLocationOverride,
+    @visibleForTesting this.deleteLocationOverride,
+    @visibleForTesting this.currentUserIdOverride,
+    super.key,
+  });
 
   final LocationModel location;
   final VoidCallback onBuildRoute;
   final bool showRouteStatus;
+
+  /// Test-only seam: when set, replaces the real
+  /// `LocationsRepository.updateLocation` call, matching the
+  /// `CreateLocationScreen.createLocationOverride` pattern so a widget
+  /// test can control success/failure/timing without constructing a real
+  /// `SupabaseClient`. Production code never sets this; see the default
+  /// in `_editLocation()`.
+  @visibleForTesting
+  final UpdateLocationCall? updateLocationOverride;
+
+  /// Test-only seam: replaces the real `LocationsRepository.deleteLocation`
+  /// call. Production code never sets this; see the default in
+  /// `_confirmDeleteLocation()`.
+  @visibleForTesting
+  final DeleteLocationCall? deleteLocationOverride;
+
+  /// Test-only seam: when set, replaces
+  /// `Supabase.instance.client.auth.currentUser?.id` as the source of the
+  /// current user id used by [canManageLocationOwnership]. A real
+  /// `SupabaseClient` session cannot be faked in a widget test (see
+  /// `gps_logout_guard_test.dart`'s own comment on the same limitation),
+  /// so this is the same kind of test-only seam as
+  /// [updateLocationOverride]/[deleteLocationOverride] -- the function
+  /// itself may still return `null` to simulate a signed-out user.
+  /// Production code never sets this.
+  @visibleForTesting
+  final String? Function()? currentUserIdOverride;
 
   @override
   ConsumerState<LocationDetailsContent> createState() =>
@@ -752,6 +819,7 @@ class _LocationDetailsContentState
     extends ConsumerState<LocationDetailsContent> {
   bool _checkingIn = false;
   bool _descriptionExpanded = false;
+  bool _deletingLocation = false;
 
   Future<void> _checkIn() async {
     if (_checkingIn || !ref.read(isOnlineProvider)) return;
@@ -809,6 +877,105 @@ class _LocationDetailsContentState
     }
   }
 
+  /// Owner Location Management Phase 1. Opens the (adapted, previously
+  /// dead) [_EditLocationDialog], which performs the save itself via
+  /// [onSave] so a failed save shows an inline error instead of popping
+  /// as if it had succeeded. Only reachable when
+  /// [canManageLocationOwnership] already gated the entry point that
+  /// calls this.
+  Future<void> _editLocation(LocationModel location) async {
+    if (!ref.read(isOnlineProvider)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Для цієї дії потрібен інтернет')),
+      );
+      return;
+    }
+    final override = widget.updateLocationOverride;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _EditLocationDialog(
+        location: location,
+        onSave: (input) => override != null
+            ? override(
+                locationId: location.id,
+                title: input.title,
+                description: input.description,
+                category: input.category,
+              )
+            : ref.read(locationsRepositoryProvider).updateLocation(
+                  locationId: location.id,
+                  title: input.title,
+                  description: input.description,
+                  category: input.category,
+                ),
+      ),
+    );
+    if (saved == true) {
+      // Same invalidation mechanism CreateLocationScreen already uses --
+      // no second refresh system.
+      ref.invalidate(locationDetailsProvider(location.id));
+      ref.invalidate(viewportLocationsProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Зміни збережено')),
+        );
+      }
+    }
+  }
+
+  /// Owner Location Management Phase 1. Uses the existing
+  /// `LocationsRepository.deleteLocation` (Storage cleanup already
+  /// happens inside it) -- no second delete path. On success, dismisses
+  /// the details screen so a deleted location's details are never left
+  /// visible; the map refreshes via the same `viewportLocationsProvider`
+  /// invalidation every other write path here already uses.
+  Future<void> _confirmDeleteLocation(LocationModel location) async {
+    if (!ref.read(isOnlineProvider)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Для цієї дії потрібен інтернет')),
+      );
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Видалити локацію?'),
+        content: const Text('Цю дію неможливо скасувати.'),
+        actions: [
+          TextButton(
+            key: const Key('location_delete_cancel_button'),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Скасувати'),
+          ),
+          FilledButton(
+            key: const Key('location_delete_confirm_button'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Видалити'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || _deletingLocation) return;
+    setState(() => _deletingLocation = true);
+    try {
+      final delete = widget.deleteLocationOverride ??
+          ref.read(locationsRepositoryProvider).deleteLocation;
+      await delete(location.id);
+      ref.invalidate(viewportLocationsProvider);
+      if (mounted) Navigator.of(context).maybePop();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _deletingLocation = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не вдалося видалити локацію.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final details = ref.watch(locationDetailsProvider(widget.location.id));
@@ -824,6 +991,13 @@ class _LocationDetailsContentState
             location.latitude, location.longitude);
     final heroUrl = photos.isNotEmpty ? photos.first : location.imageUrl;
     final amenities = location.presentedAmenities;
+    final currentUserId = widget.currentUserIdOverride != null
+        ? widget.currentUserIdOverride!()
+        : Supabase.instance.client.auth.currentUser?.id;
+    final canManage = canManageLocationOwnership(
+      currentUserId: currentUserId,
+      location: location,
+    );
 
     final mediaQuery = MediaQuery.of(context);
     final detailsScale = mediaQuery.textScaler.scale(1).clamp(1.0, 1.15);
@@ -881,9 +1055,23 @@ class _LocationDetailsContentState
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
               sliver: SliverList.list(children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: _LocationCategoryBadge(category: location.category),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child:
+                            _LocationCategoryBadge(category: location.category),
+                      ),
+                    ),
+                    if (canManage)
+                      _OwnerActionsRow(
+                        deleting: _deletingLocation,
+                        onEdit: () => _editLocation(location),
+                        onDelete: () => _confirmDeleteLocation(location),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 Text(location.title,
@@ -1070,6 +1258,41 @@ class _LocationCategoryBadge extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// Owner Location Management Phase 1: compact Edit/Delete affordance,
+/// shown only when [canManageLocationOwnership] already gated it. Icon +
+/// tooltip + distinct color for delete, never color alone.
+class _OwnerActionsRow extends StatelessWidget {
+  const _OwnerActionsRow({
+    required this.onEdit,
+    required this.onDelete,
+    required this.deleting,
+  });
+
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final bool deleting;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            key: const Key('location_details_edit_action'),
+            tooltip: 'Редагувати локацію',
+            onPressed: onEdit,
+            icon: const Icon(Icons.edit_outlined, color: Color(0xFFD6A928)),
+          ),
+          IconButton(
+            key: const Key('location_details_delete_action'),
+            tooltip: 'Видалити локацію',
+            onPressed: deleting ? null : onDelete,
+            icon: Icon(Icons.delete_outline,
+                color: Theme.of(context).colorScheme.error),
+          ),
+        ],
+      );
 }
 
 class _DetailsHeading extends StatelessWidget {
@@ -1322,10 +1545,16 @@ class _LocationEditInput {
   final String category;
 }
 
+/// Owner Location Management Phase 1: adapted from the pre-existing
+/// (previously unreferenced -- see the completed read-only audit) edit
+/// dialog. Now performs the save itself via [onSave] so a failed save
+/// shows an inline error and stays open, instead of popping as if it had
+/// succeeded.
 class _EditLocationDialog extends StatefulWidget {
-  const _EditLocationDialog({required this.location});
+  const _EditLocationDialog({required this.location, required this.onSave});
 
   final LocationModel location;
+  final Future<void> Function(_LocationEditInput input) onSave;
 
   @override
   State<_EditLocationDialog> createState() => _EditLocationDialogState();
@@ -1335,6 +1564,15 @@ class _EditLocationDialogState extends State<_EditLocationDialog> {
   late final TextEditingController _titleController;
   late final TextEditingController _descriptionController;
   late String _category;
+  bool _saving = false;
+  String? _error;
+
+  // 'general' is the legacy backend fallback and is deliberately never
+  // offered here -- the same canonical exclusion
+  // CreateLocationScreen._realCategories applies (Phase 2.2B), so Edit
+  // and Create can never disagree about which categories are real.
+  static List<LocationCategoryDefinition> get _editableCategories =>
+      referenceLocationCategories.where((c) => c.key != 'all').toList();
 
   @override
   void initState() {
@@ -1342,7 +1580,11 @@ class _EditLocationDialogState extends State<_EditLocationDialog> {
     _titleController = TextEditingController(text: widget.location.title);
     _descriptionController =
         TextEditingController(text: widget.location.description);
-    _category = widget.location.category;
+    final categories = _editableCategories;
+    final currentCategory = widget.location.category;
+    _category = categories.any((c) => c.key == currentCategory)
+        ? currentCategory
+        : categories.first.key;
   }
 
   @override
@@ -1350,6 +1592,30 @@ class _EditLocationDialogState extends State<_EditLocationDialog> {
     _titleController.dispose();
     _descriptionController.dispose();
     super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await widget.onSave(_LocationEditInput(
+        title: title,
+        description: _descriptionController.text.trim(),
+        category: _category,
+      ));
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = 'Не вдалося зберегти зміни.';
+        });
+      }
+    }
   }
 
   @override
@@ -1361,21 +1627,28 @@ class _EditLocationDialogState extends State<_EditLocationDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
+              key: const Key('location_edit_title_field'),
               controller: _titleController,
+              enabled: !_saving,
+              maxLength: locationTitleMaxLength,
               decoration: const InputDecoration(labelText: 'Назва'),
             ),
             TextField(
+              key: const Key('location_edit_description_field'),
               controller: _descriptionController,
+              enabled: !_saving,
               minLines: 2,
               maxLines: 4,
+              maxLength: locationDescriptionMaxLength,
               decoration: const InputDecoration(labelText: 'Опис'),
             ),
             DropdownButtonFormField<String>(
+              key: const Key('location_edit_category_field'),
               initialValue: _category,
               isExpanded: true,
               menuMaxHeight: 360,
               decoration: const InputDecoration(labelText: 'Категорія'),
-              items: editableLocationCategories
+              items: _editableCategories
                   .map((value) => DropdownMenuItem(
                         value: value.key,
                         child: Text(
@@ -1384,30 +1657,33 @@ class _EditLocationDialogState extends State<_EditLocationDialog> {
                         ),
                       ))
                   .toList(growable: false),
-              onChanged: (value) => _category = value ?? 'general',
+              onChanged: _saving
+                  ? null
+                  : (value) => setState(() =>
+                      _category = value ?? _editableCategories.first.key),
             ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
           ],
         ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          key: const Key('location_edit_cancel_button'),
+          onPressed: _saving ? null : () => Navigator.pop(context),
           child: const Text('Скасувати'),
         ),
         FilledButton(
-          onPressed: () {
-            final title = _titleController.text.trim();
-            if (title.isEmpty) return;
-            Navigator.pop(
-              context,
-              _LocationEditInput(
-                title: title,
-                description: _descriptionController.text.trim(),
-                category: _category,
-              ),
-            );
-          },
-          child: const Text('Зберегти'),
+          key: const Key('location_edit_save_button'),
+          onPressed: _saving ? null : _submit,
+          child: _saving
+              ? const SizedBox.square(
+                  dimension: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Зберегти'),
         ),
       ],
     );
