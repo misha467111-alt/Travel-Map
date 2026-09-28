@@ -8,6 +8,7 @@ import '../../map/domain/location_categories.dart';
 import '../../map/domain/location_model.dart';
 import '../../map/domain/location_query.dart';
 import '../../map/domain/route.dart';
+import '../domain/adventure_discovery.dart';
 import '../../map/providers/locations_provider.dart';
 import '../../map/providers/map_provider.dart';
 import '../../map/providers/route_provider.dart';
@@ -19,6 +20,13 @@ import '../../map/presentation/route_details_screen.dart';
 import '../../map/presentation/routes_presentation.dart';
 
 enum ScalableLocationListMode { discover, adventure, nearby, saved, routes }
+
+String _adventureTransportLabel(AdventureTransportMode value) =>
+    switch (value) {
+      AdventureTransportMode.walk => 'Пішки',
+      AdventureTransportMode.bike => 'Велосипед',
+      AdventureTransportMode.car => 'Авто',
+    };
 
 class ScalableLocationsScreen extends ConsumerStatefulWidget {
   const ScalableLocationsScreen({required this.mode, super.key});
@@ -43,6 +51,8 @@ class _ScalableLocationsScreenState
   double _radiusKm = 10;
   int _adventureGeneration = 1;
   LocationModel? _activeRouteDestination;
+  AdventureTransportMode _transport = AdventureTransportMode.walk;
+  double _travelMinutes = 30;
 
   bool get _isDiscover =>
       widget.mode == ScalableLocationListMode.discover ||
@@ -211,7 +221,11 @@ class _ScalableLocationsScreenState
           data: (position) {
             final double radius =
                 widget.mode == ScalableLocationListMode.adventure
-                    ? math.min(_radiusKm, 15)
+                    ? adventureEffectiveRadiusKm(
+                        userRadiusKm: _radiusKm,
+                        transport: _transport,
+                        travelMinutes: _travelMinutes,
+                      )
                     : _radiusKm;
             final query = (
               latitude: position.latitude,
@@ -354,6 +368,7 @@ class _ScalableLocationsScreenState
               ),
             ),
             Slider(
+              key: const Key('sphere_radius_slider'),
               value: _radiusKm,
               min: 1,
               max: 50,
@@ -362,11 +377,60 @@ class _ScalableLocationsScreenState
               onChanged: (value) => setState(() => _radiusKm = value),
             ),
           ],
+          if (widget.mode == ScalableLocationListMode.adventure) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                key: const Key('adventure_time_label'),
+                'Час у дорозі: ${_travelMinutes.round()} хв',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelLarge
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Slider(
+              key: const Key('adventure_time_slider'),
+              value: _travelMinutes,
+              min: 10,
+              max: 180,
+              divisions: 17,
+              label: '${_travelMinutes.round()} хв',
+              onChanged: (value) => setState(() => _travelMinutes = value),
+            ),
+            const SizedBox(height: 4),
+            DropdownButtonFormField<AdventureTransportMode>(
+              key: const Key('adventure_transport_field'),
+              initialValue: _transport,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Транспорт'),
+              items: AdventureTransportMode.values
+                  .map((value) => DropdownMenuItem(
+                        value: value,
+                        child: Text(_adventureTransportLabel(value)),
+                      ))
+                  .toList(),
+              onChanged: (value) =>
+                  setState(() => _transport = value ?? _transport),
+            ),
+            const SizedBox(height: 8),
+          ],
           for (final location in items)
             _BoundedLocationCard(
               location: location,
               compact: widget.mode == ScalableLocationListMode.discover ||
                   widget.mode == ScalableLocationListMode.adventure,
+            ),
+          if (widget.mode == ScalableLocationListMode.adventure &&
+              items.isEmpty &&
+              error == null &&
+              !loading)
+            const Padding(
+              key: Key('adventure_empty_state'),
+              padding: EdgeInsets.all(32),
+              child: Center(
+                child: Text('У вибраному радіусі локацій не знайдено'),
+              ),
             ),
           if (error != null)
             const Padding(
