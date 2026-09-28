@@ -48,10 +48,5 @@ final locationCategoryByKey = <String, LocationCategoryDefinition>{
   legacyGeneralCategory.key: legacyGeneralCategory,
 };
 
-List<LocationCategoryDefinition> get editableLocationCategories => [
-      legacyGeneralCategory,
-      ...referenceLocationCategories.where((value) => value.key != 'all'),
-    ];
-
 LocationCategoryDefinition locationCategoryDefinition(String key) =>
     locationCategoryByKey[key] ?? legacyGeneralCategory;
