@@ -47,7 +47,6 @@ class _ScalableLocationsScreenState
   bool _loading = false;
   Object? _error;
   String _category = 'all';
-  String _search = '';
   double _radiusKm = 10;
   int _adventureGeneration = 1;
   LocationModel? _activeRouteDestination;
@@ -80,7 +79,6 @@ class _ScalableLocationsScreenState
           await ref.read(locationsRepositoryProvider).fetchDiscoverPage(
                 cursor: reset ? null : _cursor,
                 category: _category == 'all' ? null : _category,
-                search: _search,
                 limit: widget.mode == ScalableLocationListMode.routes
                     ? 20
                     : _pageSize,
@@ -320,16 +318,6 @@ class _ScalableLocationsScreenState
                       ]),
                 ),
               ),
-            TextField(
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Пошук місць',
-              ),
-              onSubmitted: (value) {
-                setState(() => _search = value.trim());
-                if (_isDiscover) _loadPage(reset: true);
-              },
-            ),
             const SizedBox(height: 5),
             Wrap(
               spacing: 5,

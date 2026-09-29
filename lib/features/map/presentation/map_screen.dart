@@ -33,6 +33,7 @@ import 'map_categories_sheet.dart';
 import '../../navigation/presentation/scalable_locations_screen.dart';
 import 'create_location_screen.dart';
 import 'location_pick_screen.dart';
+import 'search_screen.dart';
 import '../../gps/presentation/gps_recording_map_screen.dart';
 
 /// Shown after a successful [LocationsRepository.createLocation] call.
@@ -302,6 +303,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             icon:
                 const Icon(Icons.filter_alt_outlined, color: Color(0xFFD4A017)),
           ),
+          MapSearchAction(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const LocationSearchScreen(),
+              ),
+            ),
+          ),
         ],
       ),
       body: position.when(
@@ -526,6 +534,29 @@ class _NotificationsButton extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// The Map's Search entry point (Search Phase 2A). Public (not
+/// underscore-private) -- same rationale as [MapQuickActions] below: a
+/// widget test can prove the button exists and invokes the given
+/// [onPressed] exactly once without mounting the full [MapScreen] and
+/// its provider graph. `MapScreen`'s own wiring of [onPressed] (pushing
+/// [LocationSearchScreen]) is verified by direct code inspection, the
+/// same split already established for [MapQuickActions.onRecordRoute].
+@visibleForTesting
+class MapSearchAction extends StatelessWidget {
+  const MapSearchAction({required this.onPressed, super.key});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+        key: const Key('map_search_action'),
+        tooltip: 'Пошук',
+        onPressed: onPressed,
+        style: _mapAppBarActionStyle,
+        icon: const Icon(Icons.search, color: Color(0xFFD4A017)),
+      );
 }
 
 /// The Map's [additionalToolbarActions] slot. Public (not
@@ -1659,8 +1690,8 @@ class _EditLocationDialogState extends State<_EditLocationDialog> {
                   .toList(growable: false),
               onChanged: _saving
                   ? null
-                  : (value) => setState(() =>
-                      _category = value ?? _editableCategories.first.key),
+                  : (value) => setState(
+                      () => _category = value ?? _editableCategories.first.key),
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),

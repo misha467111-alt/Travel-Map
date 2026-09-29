@@ -8,6 +8,7 @@ import 'package:flutter_application_1/features/map/domain/location_query.dart';
 import 'package:flutter_application_1/features/map/providers/locations_provider.dart';
 import 'package:flutter_application_1/features/map/providers/map_provider.dart';
 import 'package:flutter_application_1/features/navigation/presentation/scalable_locations_screen.dart';
+import 'package:flutter_application_1/features/social/providers/public_profile_provider.dart';
 
 /// UI/UX Fix Phase 1: proves `ScalableLocationsScreen` (the actual
 /// implementation behind "Сфера поруч") uses the same canonical category
@@ -447,4 +448,120 @@ void main() {
       }
     }
   });
+
+  group('Search Phase 2A — removed inline search field', () {
+    testWidgets('Discover no longer renders the removed inline search field',
+        (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: ScalableLocationsScreen(
+                mode: ScalableLocationListMode.discover),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Пошук місць'), findsNothing);
+      expect(find.byType(TextField), findsNothing);
+    });
+
+    testWidgets('Adventure no longer renders the removed inline search field',
+        (tester) async {
+      final built = _adventureScope(
+        child: const ScalableLocationsScreen(
+            mode: ScalableLocationListMode.adventure),
+      );
+      await tester.pumpWidget(MaterialApp(home: built.scope));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Пошук місць'), findsNothing);
+      expect(find.byType(TextField), findsNothing);
+    });
+
+    testWidgets('Nearby no longer renders the removed inline search field',
+        (tester) async {
+      final built = _adventureScope(
+        child: const ScalableLocationsScreen(
+            mode: ScalableLocationListMode.nearby),
+      );
+      await tester.pumpWidget(MaterialApp(home: built.scope));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Пошук місць'), findsNothing);
+      expect(find.byType(TextField), findsNothing);
+    });
+
+    testWidgets('Saved no longer renders the removed inline search field',
+        (tester) async {
+      final location = LocationModel(
+        id: 'saved-1',
+        userId: 'author-1',
+        title: 'Saved Location',
+        description: null,
+        category: 'nature',
+        latitude: 50.02,
+        longitude: 30.02,
+        createdAt: DateTime.utc(2026),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            savedPublicLocationsProvider
+                .overrideWith(() => _FakeSavedPublicLocationsNotifier(
+                      const {'saved-1'},
+                    )),
+            savedLocationsProvider(const {'saved-1'})
+                .overrideWith((ref) async => [location]),
+          ],
+          child: const MaterialApp(
+            home: ScalableLocationsScreen(mode: ScalableLocationListMode.saved),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Saved Location'), findsOneWidget,
+          reason: 'sanity check: the non-empty saved list actually rendered');
+      expect(find.text('Пошук місць'), findsNothing);
+      expect(find.byType(TextField), findsNothing);
+    });
+
+    testWidgets(
+        'Discover category chips remain present and selectable after '
+        'search field removal', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: ScalableLocationsScreen(
+                mode: ScalableLocationListMode.discover),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      for (final category in referenceLocationCategories) {
+        expect(
+            find.byKey(Key('sphere_category_${category.key}')), findsOneWidget,
+            reason: '${category.key} should still be selectable in Discover');
+      }
+
+      await tester.tap(find.byKey(const Key('sphere_category_historic')));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+    });
+  });
+}
+
+/// Search Phase 2A: a minimal fake so the Saved-mode regression test above
+/// can reach a non-empty `_list(items)` build without touching
+/// `SharedPreferences`/`Supabase.instance` (the real
+/// `SavedPublicLocationsNotifier.build()` does both).
+class _FakeSavedPublicLocationsNotifier extends SavedPublicLocationsNotifier {
+  _FakeSavedPublicLocationsNotifier(this._ids);
+  final Set<String> _ids;
+
+  @override
+  Future<Set<String>> build() async => _ids;
 }
