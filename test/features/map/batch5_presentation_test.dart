@@ -102,15 +102,19 @@ void main() {
     expect(locationCategoryLabel('entertainment'), 'Розваги');
   });
 
-  testWidgets('search starts with localized discovery categories',
+  // Search Phase 2B: the initial state no longer shows category chips
+  // under "Популярні категорії" (removed per the Screen 6 master
+  // reference); it now shows the curated "Популярні" shortcut rows, and
+  // no "Недавні запити" section since this device has no real history.
+  testWidgets('search starts with the Popular state and no fabricated Recent',
       (tester) async {
     await tester.pumpWidget(const ProviderScope(
       child: MaterialApp(home: LocationSearchScreen()),
     ));
 
-    expect(find.text('Популярні категорії'), findsOneWidget);
-    expect(find.text('Природа'), findsOneWidget);
-    expect(find.text('nature'), findsNothing);
+    expect(find.text('Популярні'), findsOneWidget);
+    expect(find.text('Парки'), findsOneWidget);
+    expect(find.text('Недавні запити'), findsNothing);
     expect(find.byKey(const ValueKey('search_initial')), findsOneWidget);
   });
 

@@ -2,7 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../domain/location_categories.dart';
 import '../domain/location_model.dart';
 import '../domain/location_query.dart';
 import '../providers/locations_provider.dart';
@@ -93,6 +96,31 @@ class _LocationSearchScreenState extends ConsumerState<LocationSearchScreen> {
     await _load(reset: true);
   }
 
+  /// Search Phase 2B — puts [term] into the search field and runs it
+  /// immediately (no debounce: this is already a committed action, either
+  /// a Recent row or a text-only Popular shortcut).
+  void _applyQuery(String term) {
+    _debounce?.cancel();
+    _controller.value = TextEditingValue(
+      text: term,
+      selection: TextSelection.collapsed(offset: term.length),
+    );
+    setState(() => _query = term);
+    _load(reset: true);
+  }
+
+  /// Search Phase 2B — a Popular row either applies its mapped canonical
+  /// category (see `_popularEntries`) through the existing category
+  /// contract, or, when no clean mapping exists, runs as a real text
+  /// search for its own label.
+  void _applyPopular(_PopularEntry entry) {
+    if (entry.category != null) {
+      _selectCategory(entry.category!);
+    } else {
+      _applyQuery(entry.label);
+    }
+  }
+
   Future<void> _load({required bool reset}) async {
     if (_loading || (!reset && !_hasMore) || !_hasSearch) return;
     setState(() {
@@ -126,6 +154,12 @@ class _LocationSearchScreenState extends ConsumerState<LocationSearchScreen> {
         _cursor = page.nextCursor;
         _hasMore = page.hasMore;
       });
+      // Search Phase 2B — a term becomes "recent" only once a non-empty
+      // debounced search successfully completes (not on every keystroke,
+      // not on load-more pagination, not on category-only shortcuts).
+      if (reset && _query.isNotEmpty) {
+        unawaited(ref.read(recentSearchesProvider.notifier).record(_query));
+      }
     } catch (error) {
       if (mounted) setState(() => _error = error);
     } finally {
@@ -143,8 +177,8 @@ class _LocationSearchScreenState extends ConsumerState<LocationSearchScreen> {
       child: Scaffold(
         appBar: AppBar(
           toolbarHeight: 52,
-          leading: const BackButton(),
-          titleSpacing: 0,
+          automaticallyImplyLeading: false,
+          titleSpacing: 12,
           title: TravelSearchField(
             controller: _controller,
             focusNode: _focusNode,
@@ -155,7 +189,18 @@ class _LocationSearchScreenState extends ConsumerState<LocationSearchScreen> {
               _focusNode.requestFocus();
             },
           ),
-          actions: const [SizedBox(width: 12)],
+          actions: [
+            TextButton(
+              key: const Key('search_cancel_action'),
+              onPressed: () => Navigator.of(context).pop(),
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFD4A017),
+                minimumSize: const Size(0, 36),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              child: const Text('Скасувати', style: TextStyle(fontSize: 13)),
+            ),
+          ],
         ),
         body: SafeArea(
           child: AnimatedSwitcher(
@@ -167,15 +212,38 @@ class _LocationSearchScreenState extends ConsumerState<LocationSearchScreen> {
     );
   }
 
-  Widget _initialState() => ListView(
-        key: const ValueKey('search_initial'),
-        padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
-        children: [
-          const TravelSectionHeader(title: 'Популярні категорії'),
-          const SizedBox(height: 8),
-          _categoryChips(),
+  Widget _initialState() {
+    // Search Phase 2B — the master reference's Screen 6 initial state shows
+    // no category chips, only "Недавні запити" (real per-device history,
+    // hidden entirely when empty -- never fabricated) and "Популярні"
+    // (curated, static shortcuts; see `_popularEntries`).
+    final recent = ref.watch(recentSearchesProvider).value ?? const <String>[];
+    return ListView(
+      key: const ValueKey('search_initial'),
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 24),
+      children: [
+        if (recent.isNotEmpty) ...[
+          const TravelSectionHeader(title: 'Недавні запити'),
+          const SizedBox(height: 4),
+          ...recent.map((term) => _SearchShortcutRow(
+                key: Key('recent_row_$term'),
+                icon: Icons.history_rounded,
+                label: term,
+                onTap: () => _applyQuery(term),
+              )),
+          const SizedBox(height: 18),
         ],
-      );
+        const TravelSectionHeader(title: 'Популярні'),
+        const SizedBox(height: 4),
+        ..._popularEntries.map((entry) => _SearchShortcutRow(
+              key: Key('popular_row_${entry.label}'),
+              icon: entry.icon,
+              label: entry.label,
+              onTap: () => _applyPopular(entry),
+            )),
+      ],
+    );
+  }
 
   Widget _resultsState() => Column(
         key: const ValueKey('search_results'),
@@ -406,3 +474,128 @@ class TravelEmptyState extends StatelessWidget {
         ),
       );
 }
+
+/// Search Phase 2B — a single "Недавні запити"/"Популярні" row: a compact
+/// gold/accent leading icon plus plain text, matching the master
+/// reference's Screen 6 initial state (`qa/master/master_reference_board.png`).
+class _SearchShortcutRow extends StatelessWidget {
+  const _SearchShortcutRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    super.key,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: const Color(0xFFD4A017)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+}
+
+class _PopularEntry {
+  const _PopularEntry(this.label, this.icon, {this.category});
+  final String label;
+  final IconData icon;
+
+  /// A canonical key from [referenceLocationCategories], or null when no
+  /// clean mapping exists (in which case the row runs [label] itself as a
+  /// real text search instead).
+  final String? category;
+}
+
+/// Search Phase 2B — curated Popular shortcuts for Screen 6. There is no
+/// backend for trending search terms, so this is a static, product-curated
+/// list (never labeled as live/dynamic data). Mapping chosen by auditing
+/// `referenceLocationCategories` (lib/features/map/domain/location_categories.dart):
+///   Парки                 -> category 'nature'      (Природа; Icons.park)
+///   Музеї                 -> category 'culture'      (Культура; Icons.account_balance)
+///   Кав'ярні               -> category 'cafe'         (Кафе; Icons.local_cafe)
+///   Ресторани              -> no canonical category   -> real text search "Ресторани"
+///   Оглядові майданчики    -> category 'viewpoints'   (Оглядові місця; Icons.photo_camera)
+const _popularEntries = <_PopularEntry>[
+  _PopularEntry('Парки', Icons.park, category: 'nature'),
+  _PopularEntry('Музеї', Icons.account_balance, category: 'culture'),
+  _PopularEntry("Кав'ярні", Icons.local_cafe, category: 'cafe'),
+  _PopularEntry('Ресторани', Icons.restaurant),
+  _PopularEntry('Оглядові майданчики', Icons.photo_camera,
+      category: 'viewpoints'),
+];
+
+/// Search Phase 2B — REAL per-device Recent Searches (SharedPreferences),
+/// following the same pattern as [SavedPublicLocationsNotifier] in
+/// `public_profile_provider.dart`: a per-user key with an anonymous
+/// fallback. A term is recorded only when a non-empty debounced search
+/// successfully completes (see `_load` in [_LocationSearchScreenState]) --
+/// never on every keystroke, and never for category-only shortcuts. This
+/// keeps the save rule deterministic and testable: history reflects
+/// committed searches, not typing noise.
+class RecentSearchesNotifier extends AsyncNotifier<List<String>> {
+  static const maxEntries = 5;
+  late SharedPreferences _preferences;
+  late String _key;
+
+  @override
+  Future<List<String>> build() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id ?? 'anonymous';
+    _key = 'recent_searches_v1_$userId';
+    _preferences = await SharedPreferences.getInstance();
+    return _preferences.getStringList(_key) ?? const [];
+  }
+
+  Future<void> record(String term) async {
+    // Recent history is a nice-to-have, not the search path itself: if
+    // build() never reached AsyncData (e.g. still loading, or failed --
+    // as happens in widget tests that don't initialize Supabase), skip
+    // silently rather than touching the not-yet-assigned `_preferences`.
+    if (state is! AsyncData<List<String>>) return;
+    final current = state.value ?? const <String>[];
+    final updated = mergeRecent(current, term);
+    if (identical(updated, current)) return;
+    state = AsyncData(updated);
+    await _preferences.setStringList(_key, updated);
+  }
+
+  /// The deterministic Recent-history contract (Search Phase 2B): trim
+  /// whitespace, ignore empty values, dedupe case-insensitively (newest
+  /// occurrence wins and moves to front), newest first, bounded to
+  /// [maxEntries]. Pure and Riverpod/Supabase-free so it is directly
+  /// unit-testable. Returns [current] unchanged (same instance) when
+  /// [term] is blank.
+  @visibleForTesting
+  static List<String> mergeRecent(List<String> current, String term,
+      {int maxEntries = RecentSearchesNotifier.maxEntries}) {
+    final trimmed = term.trim();
+    if (trimmed.isEmpty) return current;
+    return [
+      trimmed,
+      ...current
+          .where((existing) => existing.toLowerCase() != trimmed.toLowerCase()),
+    ].take(maxEntries).toList(growable: false);
+  }
+}
+
+final recentSearchesProvider =
+    AsyncNotifierProvider<RecentSearchesNotifier, List<String>>(
+  RecentSearchesNotifier.new,
+);
