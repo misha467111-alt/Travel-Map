@@ -11,6 +11,7 @@ import '../local/gps_local_database_provider.dart';
 import '../recording/gps_recording_controller.dart';
 import '../recording/gps_recording_state.dart';
 import '../sync/gps_sync_coordinator.dart';
+import 'gps_add_moment_sheet.dart';
 import 'gps_recording_controls.dart';
 import 'gps_recording_error_view.dart';
 import 'gps_recording_header.dart';
@@ -257,8 +258,7 @@ class GpsRecordingMapBody extends ConsumerWidget {
                 onPause: controller.pause,
                 onResume: controller.resume,
                 onFinish: controller.finish,
-                onAddWaypoint: () =>
-                    controller.addWaypoint(waypointType: 'custom'),
+                onAddWaypoint: () => _addMoment(context, controller),
                 onDiscard: controller.discard,
               ),
             ),
@@ -288,6 +288,29 @@ class GpsRecordingMapBody extends ConsumerWidget {
             onRetry: controller.start,
           ),
         );
+    }
+  }
+
+  /// Journey Phase 1B -- replaces the old silent
+  /// `controller.addWaypoint(waypointType: 'custom')` tap with a real
+  /// Moment-creation surface. [showGpsAddMomentSheet] never touches
+  /// [controller] itself (see its own doc) -- [controller.addWaypoint] is
+  /// passed directly as the sheet's `onAdd` callback, so this method's
+  /// only job is opening the sheet and, only on a genuine success,
+  /// showing the existing product's plain confirmation feedback. No
+  /// pause/resume event is created or implied by any of this.
+  Future<void> _addMoment(
+    BuildContext context,
+    GpsRecordingController controller,
+  ) async {
+    final added = await showGpsAddMomentSheet(
+      context,
+      onAdd: controller.addWaypoint,
+    );
+    if (added == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Точку подорожі додано')),
+      );
     }
   }
 }

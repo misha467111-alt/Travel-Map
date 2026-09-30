@@ -479,7 +479,15 @@ class GpsRecordingController with WidgetsBindingObserver {
   /// future "drop pin on map" waypoint flow) per the existing GPS-2
   /// `addWaypoint` contract. Photo attachment is out of scope for
   /// GPS-3 -- `photoRef` stays null.
-  Future<void> addWaypoint({
+  ///
+  /// Journey Phase 1B -- returns whether a Moment was actually created,
+  /// so a real creation UI (`GpsAddMomentSheet`) can tell success from
+  /// the pre-existing silent-rejection cases below apart, without this
+  /// method's own rejection logic changing at all. A safe, backward-
+  /// compatible extension: every pre-existing caller already ignores the
+  /// return value of `Future<void>`, so widening it to `Future<bool>`
+  /// changes nothing for them.
+  Future<bool> addWaypoint({
     required String waypointType,
     String? title,
     String? note,
@@ -490,16 +498,16 @@ class GpsRecordingController with WidgetsBindingObserver {
     if (_state.status != GpsRecordingStatus.recording &&
         _state.status != GpsRecordingStatus.paused) {
       debugPrint('gps addWaypoint: rejected, not recording/paused');
-      return;
+      return false;
     }
     final routeId = _state.routeId;
-    if (routeId == null) return;
+    if (routeId == null) return false;
 
     final lat = latitude ?? _state.lastAccepted?.latitude;
     final lng = longitude ?? _state.lastAccepted?.longitude;
     if (lat == null || lng == null) {
       debugPrint('gps addWaypoint: rejected, no known position yet');
-      return;
+      return false;
     }
 
     await _db.addWaypoint(
@@ -515,6 +523,7 @@ class GpsRecordingController with WidgetsBindingObserver {
       recordedAt: DateTime.now().toUtc(),
     );
     debugPrint('gps: waypoint added');
+    return true;
   }
 
   // ---------------------------------------------------------------------

@@ -312,6 +312,34 @@ void main() {
       expect(controller.state.status, GpsRecordingStatus.idle);
     });
 
+    // Journey Phase 1B: addWaypoint's return value lets a real creation
+    // UI (GpsAddMomentSheet) tell success from silent rejection apart.
+    test('returns true when a Moment is actually created', () async {
+      await controller.start();
+      await settle();
+      source.emitPosition(testPosition());
+      await settle();
+
+      final added = await controller.addWaypoint(waypointType: 'viewpoint');
+
+      expect(added, isTrue);
+    });
+
+    test('returns false when idle (rejected, nothing created)', () async {
+      final added = await controller.addWaypoint(waypointType: 'danger');
+
+      expect(added, isFalse);
+    });
+
+    test('returns false when no known position exists yet', () async {
+      await controller.start();
+      await settle();
+
+      final added = await controller.addWaypoint(waypointType: 'custom');
+
+      expect(added, isFalse);
+    });
+
     test('accepts explicit coordinates instead of the last known position',
         () async {
       await controller.start();
