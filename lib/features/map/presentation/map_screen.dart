@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../controllers/profile_controller.dart';
@@ -776,6 +777,11 @@ typedef UpdateLocationCall = Future<void> Function({
 /// [LocationDetailsContent.deleteLocationOverride].
 typedef DeleteLocationCall = Future<void> Function(String locationId);
 
+/// Location Details External Maps Phase 3A -- matches `url_launcher`'s own
+/// `launchUrl` signature closely enough for a test seam: see
+/// [LocationDetailsContent.launchExternalMapOverride].
+typedef ExternalMapLauncher = Future<bool> Function(Uri uri);
+
 /// Owner Location Management Phase 1: an owner may manage their own
 /// location only while the backend itself would actually allow it --
 /// `locations_update`/`locations_delete` RLS and `update_own_location`
@@ -807,6 +813,7 @@ class LocationDetailsContent extends ConsumerStatefulWidget {
     @visibleForTesting this.updateLocationOverride,
     @visibleForTesting this.deleteLocationOverride,
     @visibleForTesting this.currentUserIdOverride,
+    @visibleForTesting this.launchExternalMapOverride,
     super.key,
   });
 
@@ -841,6 +848,14 @@ class LocationDetailsContent extends ConsumerStatefulWidget {
   @visibleForTesting
   final String? Function()? currentUserIdOverride;
 
+  /// Test-only seam: when set, replaces the real `url_launcher.launchUrl`
+  /// call used by the "Відкрити" external-maps action, so a widget test
+  /// can assert on the exact `Uri` built from the location's coordinates
+  /// and simulate success/failure without a real platform launch.
+  /// Production code never sets this; see the default in `_openExternalMap()`.
+  @visibleForTesting
+  final ExternalMapLauncher? launchExternalMapOverride;
+
   @override
   ConsumerState<LocationDetailsContent> createState() =>
       _LocationDetailsContentState();
@@ -851,6 +866,36 @@ class _LocationDetailsContentState
   bool _checkingIn = false;
   bool _descriptionExpanded = false;
   bool _deletingLocation = false;
+
+  /// Location Details External Maps Phase 3A -- "Відкрити" hands the
+  /// location's real coordinates off to an external maps-capable app via
+  /// a single cross-platform Google Maps search URL (opens the native app
+  /// when installed, else falls back to a browser -- no `dart:io`
+  /// platform branching needed). Never mutates the location, route state,
+  /// owner state, or XP; failure (no handler, launch refused) is caught
+  /// and surfaced the same way `_buildRoute`/`_checkIn` already do.
+  Future<void> _openExternalMap(LocationModel location) async {
+    final uri = Uri.https('www.google.com', '/maps/search/', {
+      'api': '1',
+      'query': '${location.latitude},${location.longitude}',
+    });
+    final launcher = widget.launchExternalMapOverride ??
+        (target) => launchUrl(target, mode: LaunchMode.externalApplication);
+    try {
+      final launched = await launcher(uri);
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не вдалося відкрити карти.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не вдалося відкрити карти.')),
+        );
+      }
+    }
+  }
 
   Future<void> _checkIn() async {
     if (_checkingIn || !ref.read(isOnlineProvider)) return;
@@ -1125,9 +1170,17 @@ class _LocationDetailsContentState
                           .toList(growable: false)),
                 ],
                 const SizedBox(height: 14),
-                Row(children: [
-                  Expanded(
-                    child: FilledButton.icon(
+                // Location Details External Maps Phase 3A: a Wrap (not a
+                // Row of Expanded children) so the new "Відкрити" action
+                // fits alongside "Маршрут" and check-in without ever
+                // overflowing -- at very narrow widths it simply reflows
+                // to a second line instead.
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    FilledButton.icon(
                       key: const Key('details_route_action'),
                       onPressed: widget.onBuildRoute,
                       icon: const Icon(Icons.directions),
@@ -1135,15 +1188,24 @@ class _LocationDetailsContentState
                       style: FilledButton.styleFrom(
                           backgroundColor: const Color(0xFFD6A928),
                           foregroundColor: const Color(0xFF142019),
-                          minimumSize: const Size.fromHeight(42)),
+                          minimumSize: const Size(0, 42)),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  IconButton.filledTonal(
-                      tooltip: 'Зробити check-in',
-                      onPressed: _checkingIn ? null : _checkIn,
-                      icon: const Icon(Icons.how_to_reg_outlined)),
-                ]),
+                    OutlinedButton.icon(
+                      key: const Key('details_open_external_action'),
+                      onPressed: () => _openExternalMap(location),
+                      icon: const Icon(Icons.map_outlined),
+                      label: const Text('Відкрити'),
+                      style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFD6A928),
+                          side: const BorderSide(color: Color(0xFFD6A928)),
+                          minimumSize: const Size(0, 42)),
+                    ),
+                    IconButton.filledTonal(
+                        tooltip: 'Зробити check-in',
+                        onPressed: _checkingIn ? null : _checkIn,
+                        icon: const Icon(Icons.how_to_reg_outlined)),
+                  ],
+                ),
                 if (location.description?.trim().isNotEmpty == true) ...[
                   const SizedBox(height: 20),
                   const _DetailsHeading('Про локацію'),

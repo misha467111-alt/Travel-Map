@@ -24,6 +24,11 @@ dependencies:
   shared_preferences: ^2.2.2
   http: ^1.2.0
   uuid: ^4.3.0
+  # Location Details External Maps Phase 3A: already resolved transitively
+  # at 6.3.2 (pulled in via geolocator); pinned here as a direct dependency
+  # since lib/features/map/presentation/map_screen.dart now calls
+  # launchUrl directly for the "Відкрити" external-maps handoff.
+  url_launcher: ^6.3.2
   flutter_riverpod: ^3.4.2
   go_router: ^14.8.1
   riverpod_annotation: ^4.0.6
