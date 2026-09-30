@@ -14,6 +14,8 @@ typedef GpsAddMomentCallback = Future<bool> Function({
   String? note,
 });
 
+typedef GpsEditMomentCallback = GpsAddMomentCallback;
+
 /// Journey Phase 1B -- one canonical `route_waypoint_type` value with its
 /// Ukrainian label and icon. Keys are copied verbatim from the enum
 /// (`supabase/migrations/202609140002_trips_gps_core.sql`) -- no value
@@ -65,12 +67,51 @@ Future<bool?> showGpsAddMomentSheet(
       builder: (_) => GpsAddMomentSheet(onAdd: onAdd),
     );
 
+Future<bool?> showGpsEditMomentSheet(
+  BuildContext context, {
+  required String initialType,
+  required String? initialTitle,
+  required String? initialNote,
+  required GpsEditMomentCallback onSave,
+}) =>
+    showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      builder: (_) => GpsAddMomentSheet.edit(
+        onSave: onSave,
+        initialType: initialType,
+        initialTitle: initialTitle,
+        initialNote: initialNote,
+      ),
+    );
+
 /// Public (not underscore-private) so a widget test can pump it directly
 /// with a fake [onAdd], the same reasoning already established for
 /// [MapCategoriesSheet]/other production sheets in this codebase.
 class GpsAddMomentSheet extends StatefulWidget {
-  const GpsAddMomentSheet({required this.onAdd, super.key});
+  const GpsAddMomentSheet({required this.onAdd, super.key})
+      : initialType = gpsDefaultMomentType,
+        initialTitle = null,
+        initialNote = null,
+        editing = false;
+
+  const GpsAddMomentSheet.edit({
+    required GpsEditMomentCallback onSave,
+    required this.initialType,
+    required this.initialTitle,
+    required this.initialNote,
+    super.key,
+  })  : onAdd = onSave,
+        editing = true;
+
   final GpsAddMomentCallback onAdd;
+  final String initialType;
+  final String? initialTitle;
+  final String? initialNote;
+  final bool editing;
 
   @override
   State<GpsAddMomentSheet> createState() => _GpsAddMomentSheetState();
@@ -80,11 +121,19 @@ class _GpsAddMomentSheetState extends State<GpsAddMomentSheet> {
   static const _background = Color(0xFF0D1C17);
   static const _gold = Color(0xFFD4A017);
 
-  String _type = gpsDefaultMomentType;
-  final _titleController = TextEditingController();
-  final _noteController = TextEditingController();
+  late String _type;
+  late final TextEditingController _titleController;
+  late final TextEditingController _noteController;
   bool _saving = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _type = widget.initialType;
+    _titleController = TextEditingController(text: widget.initialTitle);
+    _noteController = TextEditingController(text: widget.initialNote);
+  }
 
   @override
   void dispose() {
@@ -119,14 +168,18 @@ class _GpsAddMomentSheetState extends State<GpsAddMomentSheet> {
       } else {
         setState(() {
           _saving = false;
-          _error = 'Не вдалося додати точку подорожі.';
+          _error = widget.editing
+              ? 'Не вдалося зберегти зміни.'
+              : 'Не вдалося додати точку подорожі.';
         });
       }
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = 'Не вдалося додати точку подорожі.';
+        _error = widget.editing
+            ? 'Не вдалося зберегти зміни.'
+            : 'Не вдалося додати точку подорожі.';
       });
     }
   }
@@ -146,7 +199,9 @@ class _GpsAddMomentSheetState extends State<GpsAddMomentSheet> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 480),
             child: Material(
-              key: const Key('gps_add_moment_sheet'),
+              key: Key(widget.editing
+                  ? 'gps_edit_moment_sheet'
+                  : 'gps_add_moment_sheet'),
               color: _background,
               clipBehavior: Clip.antiAlias,
               shape: const RoundedRectangleBorder(
@@ -164,7 +219,9 @@ class _GpsAddMomentSheetState extends State<GpsAddMomentSheet> {
                         children: [
                           Expanded(
                             child: Text(
-                              'Нова точка подорожі',
+                              widget.editing
+                                  ? 'Редагувати точку'
+                                  : 'Нова точка подорожі',
                               style: Theme.of(context)
                                   .textTheme
                                   .titleMedium
@@ -238,7 +295,9 @@ class _GpsAddMomentSheetState extends State<GpsAddMomentSheet> {
                           ),
                           const Spacer(),
                           FilledButton.icon(
-                            key: const Key('gps_moment_add_button'),
+                            key: Key(widget.editing
+                                ? 'gps_moment_save_button'
+                                : 'gps_moment_add_button'),
                             onPressed: _saving ? null : _submit,
                             style: FilledButton.styleFrom(
                               backgroundColor: _gold,
@@ -250,8 +309,10 @@ class _GpsAddMomentSheetState extends State<GpsAddMomentSheet> {
                                     child: CircularProgressIndicator(
                                         strokeWidth: 2),
                                   )
-                                : const Icon(Icons.add_location_alt_outlined),
-                            label: const Text('Додати'),
+                                : Icon(widget.editing
+                                    ? Icons.save_outlined
+                                    : Icons.add_location_alt_outlined),
+                            label: Text(widget.editing ? 'Зберегти' : 'Додати'),
                           ),
                         ],
                       ),

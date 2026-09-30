@@ -156,6 +156,7 @@ class GpsRecordingMapBody extends ConsumerWidget {
 
     GpsSyncUiState? sync;
     var moments = const <LocalWaypoint>[];
+    Stream<List<LocalWaypoint>>? momentsStream;
     if (routeId != null) {
       final routeAsync = ref.watch(
         gpsRouteSyncStateProvider((ownerId: ownerId, routeId: routeId)),
@@ -163,6 +164,10 @@ class GpsRecordingMapBody extends ConsumerWidget {
       final route = routeAsync.value;
       if (route != null) sync = mapGpsSyncUiState(route.syncStatus);
       if (showLiveMoments) {
+        momentsStream = ref.read(gpsLocalDatabaseProvider).watchWaypoints(
+              ownerId: ownerId,
+              recordedRouteId: routeId,
+            );
         moments = ref
                 .watch(gpsRouteWaypointsProvider(
                     (ownerId: ownerId, routeId: routeId)))
@@ -207,7 +212,8 @@ class GpsRecordingMapBody extends ConsumerWidget {
                 maxHeight: MediaQuery.sizeOf(context).height * 0.6,
               ),
               child: SingleChildScrollView(
-                child: _buildContent(context, uiState, sync, moments),
+                child: _buildContent(
+                    context, uiState, sync, moments, momentsStream),
               ),
             ),
           ),
@@ -221,6 +227,7 @@ class GpsRecordingMapBody extends ConsumerWidget {
     GpsRecordingUiState uiState,
     GpsSyncUiState? sync,
     List<LocalWaypoint> moments,
+    Stream<List<LocalWaypoint>>? momentsStream,
   ) {
     final routeId = state.routeId;
 
@@ -288,8 +295,25 @@ class GpsRecordingMapBody extends ConsumerWidget {
                 onFinish: controller.finish,
                 onAddWaypoint: () => _addMoment(context, controller),
                 momentCount: moments.length,
-                onViewMoments: () =>
-                    showGpsMomentsSheet(context, moments: moments),
+                onViewMoments: () => showGpsMomentsSheet(
+                  context,
+                  moments: moments,
+                  momentsStream: momentsStream,
+                  onEdit: (
+                    moment, {
+                    required waypointType,
+                    title,
+                    note,
+                  }) =>
+                      controller.updateWaypoint(
+                    waypointId: moment.id,
+                    waypointType: waypointType,
+                    title: title,
+                    note: note,
+                  ),
+                  onDelete: (moment) =>
+                      controller.deleteWaypoint(waypointId: moment.id),
+                ),
                 onDiscard: controller.discard,
               ),
             ),
@@ -311,8 +335,11 @@ class GpsRecordingMapBody extends ConsumerWidget {
                 alignment: Alignment.centerLeft,
                 child: GpsMomentInspectionButton(
                   momentCount: moments.length,
-                  onPressed: () =>
-                      showGpsMomentsSheet(context, moments: moments),
+                  onPressed: () => showGpsMomentsSheet(
+                    context,
+                    moments: moments,
+                    momentsStream: momentsStream,
+                  ),
                 ),
               ),
             ),

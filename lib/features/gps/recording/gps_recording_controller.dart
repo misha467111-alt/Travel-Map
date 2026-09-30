@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/widgets.dart';
@@ -51,6 +52,19 @@ import 'gps_sample_validation.dart';
 /// with a plain in-memory database and a fake location source, with no
 /// live Supabase session required at all.
 class GpsRecordingController with WidgetsBindingObserver {
+  static const _editableWaypointTypes = <String>{
+    'mountain_pass',
+    'campsite',
+    'overnight',
+    'rest',
+    'water',
+    'photo_point',
+    'viewpoint',
+    'danger',
+    'parking',
+    'interesting_place',
+    'custom',
+  };
   GpsRecordingController({
     required String ownerId,
     required GpsLocalDatabase db,
@@ -524,6 +538,58 @@ class GpsRecordingController with WidgetsBindingObserver {
     );
     debugPrint('gps: waypoint added');
     return true;
+  }
+
+  /// Updates only user-editable Moment metadata for the active Journey.
+  /// Identity, coordinates, altitude, and recorded time never enter this
+  /// method, so they cannot be changed accidentally by the edit flow.
+  Future<bool> updateWaypoint({
+    required String waypointId,
+    required String waypointType,
+    String? title,
+    String? note,
+  }) async {
+    if (_state.status != GpsRecordingStatus.recording &&
+        _state.status != GpsRecordingStatus.paused) {
+      return false;
+    }
+    final routeId = _state.routeId;
+    if (routeId == null) return false;
+    if (!_editableWaypointTypes.contains(waypointType)) return false;
+    final normalizedTitle = title?.trim();
+    final normalizedNote = note?.trim();
+    if (normalizedTitle != null && normalizedTitle.length > 80) return false;
+
+    await _db.updateWaypointMetadata(
+      ownerId: _ownerId,
+      recordedRouteId: routeId,
+      id: waypointId,
+      waypointType: Value(waypointType),
+      title: Value(normalizedTitle == null || normalizedTitle.isEmpty
+          ? null
+          : normalizedTitle),
+      note: Value(normalizedNote == null || normalizedNote.isEmpty
+          ? null
+          : normalizedNote),
+    );
+    return true;
+  }
+
+  /// Deletes a Moment through Drift's existing sync-safe delete/tombstone
+  /// lifecycle. The recording state and location stream are never touched.
+  Future<bool> deleteWaypoint({required String waypointId}) async {
+    if (_state.status != GpsRecordingStatus.recording &&
+        _state.status != GpsRecordingStatus.paused) {
+      return false;
+    }
+    final routeId = _state.routeId;
+    if (routeId == null) return false;
+
+    return _db.deleteWaypoint(
+      ownerId: _ownerId,
+      recordedRouteId: routeId,
+      id: waypointId,
+    );
   }
 
   // ---------------------------------------------------------------------

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -155,15 +157,24 @@ void main() {
   group('Moment inspection', () {
     Future<void> openSheet(
       WidgetTester tester,
-      List<LocalWaypoint> moments,
-    ) async {
+      List<LocalWaypoint> moments, {
+      Stream<List<LocalWaypoint>>? momentsStream,
+      GpsEditMomentPersist? onEdit,
+      GpsDeleteMomentPersist? onDelete,
+    }) async {
       await tester.pumpWidget(MaterialApp(
         theme: buildAppTheme(),
         home: Scaffold(
           body: Builder(
             builder: (context) => GpsMomentInspectionButton(
               momentCount: moments.length,
-              onPressed: () => showGpsMomentsSheet(context, moments: moments),
+              onPressed: () => showGpsMomentsSheet(
+                context,
+                moments: moments,
+                momentsStream: momentsStream,
+                onEdit: onEdit,
+                onDelete: onDelete,
+              ),
             ),
           ),
         ),
@@ -232,6 +243,132 @@ void main() {
       expect(moments.single.title, 'Незмінна точка');
     });
 
+    testWidgets('Phase 1D management actions open edit and pre-fill metadata',
+        (tester) async {
+      final original = moment(
+        id: 'managed',
+        type: 'water',
+        title: 'Джерело',
+        note: 'Холодна вода',
+      );
+      await openSheet(
+        tester,
+        [original],
+        onEdit: (moment, {required waypointType, title, note}) async => true,
+      );
+
+      await tester.tap(find.byKey(const Key('gps_moment_actions_managed')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Редагувати'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('gps_edit_moment_sheet')), findsOneWidget);
+      expect(find.text('Джерело'), findsWidgets);
+      expect(find.text('Холодна вода'), findsWidgets);
+    });
+
+    testWidgets('delete requires confirmation and cancel does not mutate',
+        (tester) async {
+      var calls = 0;
+      await openSheet(
+        tester,
+        [moment(id: 'delete-me')],
+        onDelete: (_) async {
+          calls++;
+          return true;
+        },
+      );
+
+      await tester.tap(find.byKey(const Key('gps_moment_actions_delete-me')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Видалити'));
+      await tester.pumpAndSettle();
+      expect(find.text('Видалити точку подорожі?'), findsOneWidget);
+
+      await tester
+          .tap(find.byKey(const Key('gps_delete_moment_cancel_button')));
+      await tester.pumpAndSettle();
+      expect(calls, 0);
+      expect(find.byKey(const Key('gps_moment_row_delete-me')), findsOneWidget);
+    });
+
+    testWidgets('confirmed delete is guarded and failures remain actionable',
+        (tester) async {
+      var calls = 0;
+      await openSheet(
+        tester,
+        [moment(id: 'delete-me')],
+        onDelete: (_) async {
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return false;
+        },
+      );
+      await tester.tap(find.byKey(const Key('gps_moment_actions_delete-me')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Видалити'));
+      await tester.pumpAndSettle();
+
+      await tester
+          .tap(find.byKey(const Key('gps_delete_moment_confirm_button')));
+      await tester.pump();
+      await tester.tap(
+          find.byKey(const Key('gps_delete_moment_confirm_button')),
+          warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(calls, 1);
+      expect(find.byKey(const Key('gps_delete_moment_dialog')), findsOneWidget);
+      expect(find.byKey(const Key('gps_delete_moment_error')), findsOneWidget);
+    });
+
+    testWidgets('confirmed delete calls persistence exactly once',
+        (tester) async {
+      var calls = 0;
+      await openSheet(
+        tester,
+        [moment(id: 'delete-me')],
+        onDelete: (_) async {
+          calls++;
+          return true;
+        },
+      );
+      await tester.tap(find.byKey(const Key('gps_moment_actions_delete-me')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Видалити'));
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.byKey(const Key('gps_delete_moment_confirm_button')));
+      await tester.pumpAndSettle();
+
+      expect(calls, 1);
+      expect(find.byKey(const Key('gps_delete_moment_dialog')), findsNothing);
+    });
+
+    testWidgets('open list follows the canonical Moment stream reactively',
+        (tester) async {
+      final stream = StreamController<List<LocalWaypoint>>.broadcast();
+      addTearDown(stream.close);
+      await openSheet(
+        tester,
+        [moment(id: 'reactive', title: 'Before')],
+        momentsStream: stream.stream,
+      );
+      expect(find.text('Before'), findsOneWidget);
+      expect(find.text('Точки подорожі (1)'), findsWidgets);
+
+      stream.add([moment(id: 'reactive', type: 'danger', title: 'After')]);
+      await tester.pumpAndSettle();
+      expect(find.text('Before'), findsNothing);
+      expect(find.text('After'), findsOneWidget);
+      expect(find.text('Небезпека'), findsOneWidget);
+
+      stream.add(const []);
+      await tester.pumpAndSettle();
+      expect(find.text('Точки подорожі (0)'), findsOneWidget);
+      expect(find.byKey(const Key('gps_moment_row_reactive')), findsNothing);
+    });
+
     group('C27/C28 responsive', () {
       for (final width in [320.0, 360.0, 390.0, 430.0]) {
         for (final scale in [1.0, 1.3, 1.5]) {
@@ -260,6 +397,7 @@ void main() {
                               note: 'Коротка корисна нотатка',
                             ),
                           ],
+                          onDelete: (_) async => true,
                         ),
                       ),
                     ),
@@ -276,6 +414,15 @@ void main() {
             expect(find.byKey(const Key('gps_moments_close_button')),
                 findsOneWidget);
             expect(find.byKey(const Key('gps_moment_row_moment-1')),
+                findsOneWidget);
+            await tester
+                .tap(find.byKey(const Key('gps_moment_actions_moment-1')));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('Видалити'));
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull,
+                reason: 'delete confirmation overflow at $width, $scale');
+            expect(find.byKey(const Key('gps_delete_moment_confirm_button')),
                 findsOneWidget);
           });
         }

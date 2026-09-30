@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/features/gps/local/gps_local_database.dart';
@@ -554,6 +555,42 @@ void main() {
     coordinator.dispose();
   });
 
+  test('19b an offline edit of a synced waypoint enters the pending flow',
+      () async {
+    await createRoute();
+    await db.addWaypoint(
+      id: 'w1',
+      ownerId: 'me',
+      recordedRouteId: 'r1',
+      waypointType: 'viewpoint',
+      title: 'Before',
+      latitude: 50,
+      longitude: 30,
+      recordedAt: DateTime.utc(2026, 1, 1, 10, 5),
+    );
+    await db.markWaypointSynced(ownerId: 'me', id: 'w1');
+    await db.updateWaypointMetadata(
+      ownerId: 'me',
+      recordedRouteId: 'r1',
+      id: 'w1',
+      waypointType: const Value('danger'),
+      title: const Value('After'),
+      note: const Value('Offline edit'),
+    );
+
+    final coordinator = coordinatorFor('me');
+    await coordinator.syncNow();
+
+    expect(repo.upsertedWaypoints, hasLength(1));
+    expect(repo.upsertedWaypoints.single.id, 'w1');
+    expect(repo.upsertedWaypoints.single.waypointType, 'danger');
+    expect(repo.upsertedWaypoints.single.title, 'After');
+    expect(repo.upsertedWaypoints.single.note, 'Offline edit');
+    expect(await db.getUnsyncedWaypoints(ownerId: 'me', recordedRouteId: 'r1'),
+        isEmpty);
+    coordinator.dispose();
+  });
+
   test(
       '20 waypoint retry: a failed upload leaves it pending and it is '
       'retried on the next pass', () async {
@@ -602,7 +639,8 @@ void main() {
     );
     await db.markWaypointSynced(
         ownerId: 'me', id: 'w1'); // simulate already synced
-    await db.deleteWaypoint(ownerId: 'me', id: 'w1'); // becomes a tombstone
+    await db.deleteWaypoint(
+        ownerId: 'me', recordedRouteId: 'r1', id: 'w1'); // becomes a tombstone
 
     repo.deleteWaypointError =
         (_) => GpsSyncException(GpsSyncErrorKind.retryable, 'network down');

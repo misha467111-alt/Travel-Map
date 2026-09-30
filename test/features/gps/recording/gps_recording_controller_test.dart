@@ -357,6 +357,128 @@ void main() {
           await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId);
       expect(waypoints.single.latitude, 51.0);
     });
+
+    test(
+        'Phase 1D edits metadata while recording and preserves immutable telemetry',
+        () async {
+      await controller.start();
+      await settle();
+      final routeId = controller.state.routeId!;
+      await controller.addWaypoint(
+        waypointType: 'viewpoint',
+        title: 'Before',
+        note: 'Old note',
+        latitude: 49.25,
+        longitude: 24.75,
+        altitude: 812,
+      );
+      final before =
+          (await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId))
+              .single;
+      await db.markWaypointSynced(ownerId: 'me', id: before.id);
+
+      final edited = await controller.updateWaypoint(
+        waypointId: before.id,
+        waypointType: 'water',
+        title: '  Spring  ',
+        note: '  ',
+      );
+
+      final after =
+          (await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId))
+              .single;
+      expect(edited, isTrue);
+      expect(after.waypointType, 'water');
+      expect(after.title, 'Spring');
+      expect(after.note, isNull);
+      expect(after.latitude, before.latitude);
+      expect(after.longitude, before.longitude);
+      expect(after.altitude, before.altitude);
+      expect(after.recordedAt, before.recordedAt);
+      expect(after.recordedRouteId, before.recordedRouteId);
+      expect(after.ownerId, before.ownerId);
+      expect(after.id, before.id);
+      expect(after.syncStatus, WaypointSyncStatus.pending);
+      expect(controller.state.status, GpsRecordingStatus.recording);
+    });
+
+    test('Phase 1D rejects non-canonical types and titles over 80 chars',
+        () async {
+      await controller.start();
+      await settle();
+      final routeId = controller.state.routeId!;
+      await controller.addWaypoint(
+        waypointType: 'custom',
+        title: 'Original',
+        latitude: 50,
+        longitude: 30,
+      );
+      final waypoint =
+          (await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId))
+              .single;
+
+      expect(
+          await controller.updateWaypoint(
+              waypointId: waypoint.id, waypointType: 'not-a-real-type'),
+          isFalse);
+      expect(
+          await controller.updateWaypoint(
+            waypointId: waypoint.id,
+            waypointType: 'custom',
+            title: 'x' * 81,
+          ),
+          isFalse);
+      expect(
+          (await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId))
+              .single
+              .title,
+          'Original');
+    });
+
+    test('Phase 1D edit and delete work while paused without resuming',
+        () async {
+      await controller.start();
+      await settle();
+      final routeId = controller.state.routeId!;
+      await controller.addWaypoint(
+        waypointType: 'custom',
+        latitude: 50,
+        longitude: 30,
+      );
+      final waypoint =
+          (await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId))
+              .single;
+      await controller.pause();
+
+      expect(
+          await controller.updateWaypoint(
+            waypointId: waypoint.id,
+            waypointType: 'danger',
+            title: 'Cliff',
+          ),
+          isTrue);
+      expect(controller.state.status, GpsRecordingStatus.paused);
+      expect(
+          (await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId))
+              .single
+              .title,
+          'Cliff');
+
+      expect(await controller.deleteWaypoint(waypointId: waypoint.id), isTrue);
+      expect(controller.state.status, GpsRecordingStatus.paused);
+      expect(await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId),
+          isEmpty);
+    });
+
+    test('Phase 1D actions are rejected outside a live Journey', () async {
+      expect(
+          await controller.updateWaypoint(
+            waypointId: 'missing',
+            waypointType: 'custom',
+          ),
+          isFalse);
+      expect(await controller.deleteWaypoint(waypointId: 'missing'), isFalse);
+    });
   });
 
   group('finish', () {
@@ -463,6 +585,49 @@ void main() {
       await settle();
       expect(recovered.state.status, GpsRecordingStatus.recoverable);
       expect(recovered.state.routeId, routeId);
+      recovered.dispose();
+    });
+
+    test('edited and deleted Moments remain persisted through recovery',
+        () async {
+      await controller.start();
+      await settle();
+      final routeId = controller.state.routeId!;
+      await controller.addWaypoint(
+          waypointType: 'custom',
+          title: 'Edit me',
+          latitude: 50,
+          longitude: 30);
+      await controller.addWaypoint(
+          waypointType: 'custom',
+          title: 'Delete me',
+          latitude: 51,
+          longitude: 31);
+      final before =
+          await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId);
+      final edited = before.singleWhere((item) => item.title == 'Edit me');
+      final deleted = before.singleWhere((item) => item.title == 'Delete me');
+      await controller.updateWaypoint(
+          waypointId: edited.id,
+          waypointType: 'viewpoint',
+          title: 'Recovered edit');
+      await controller.deleteWaypoint(waypointId: deleted.id);
+      controller.dispose();
+
+      final recovered = GpsRecordingController(
+          ownerId: 'me',
+          db: db,
+          locationSource: source,
+          notificationPermissionSource: notifications);
+      await settle();
+
+      expect(recovered.state.status, GpsRecordingStatus.recoverable);
+      final after =
+          await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId);
+      expect(after, hasLength(1));
+      expect(after.single.id, edited.id);
+      expect(after.single.title, 'Recovered edit');
+      expect(after.single.waypointType, 'viewpoint');
       recovered.dispose();
     });
 

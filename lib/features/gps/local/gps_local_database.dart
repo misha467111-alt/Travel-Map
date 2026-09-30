@@ -901,13 +901,17 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   /// 'pending' waypoint) is rejected outright.
   Future<void> updateWaypointMetadata({
     required String ownerId,
+    required String recordedRouteId,
     required String id,
     Value<String?> title = const Value.absent(),
     Value<String?> note = const Value.absent(),
     Value<String> waypointType = const Value.absent(),
   }) async {
     final row = await (select(localWaypoints)
-          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.id.equals(id)))
         .getSingleOrNull();
     if (row == null) {
       throw StateError('waypoint $id not found for this owner');
@@ -917,7 +921,10 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     }
 
     await (update(localWaypoints)
-          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.id.equals(id)))
         .write(LocalWaypointsCompanion(
       title: title,
       note: note,
@@ -947,26 +954,39 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   /// [purgeAcknowledgedTombstone] to physically remove it once the
   /// server has confirmed the deletion — never call that from general
   /// app code before that confirmation exists.
-  Future<void> deleteWaypoint(
-      {required String ownerId, required String id}) async {
+  Future<bool> deleteWaypoint({
+    required String ownerId,
+    required String recordedRouteId,
+    required String id,
+  }) async {
     final row = await (select(localWaypoints)
-          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.id.equals(id)))
         .getSingleOrNull();
-    if (row == null) return;
+    if (row == null) return false;
 
     if (row.syncStatus == WaypointSyncStatus.pending) {
       await (delete(localWaypoints)
-            ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+            ..where((t) =>
+                t.ownerId.equals(ownerId) &
+                t.recordedRouteId.equals(recordedRouteId) &
+                t.id.equals(id)))
           .go();
-      return;
+      return true;
     }
 
     await (update(localWaypoints)
-          ..where((t) => t.ownerId.equals(ownerId) & t.id.equals(id)))
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.id.equals(id)))
         .write(LocalWaypointsCompanion(
       syncStatus: const Value(WaypointSyncStatus.pendingDelete),
       updatedAt: Value(DateTime.now().toUtc()),
     ));
+    return true;
   }
 
   /// Waypoints visible to normal UI use — a tombstone

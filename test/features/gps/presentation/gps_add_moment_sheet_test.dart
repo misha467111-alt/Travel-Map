@@ -348,6 +348,100 @@ void main() {
     expect(calls, 1);
   });
 
+  group('Phase 1D edit form', () {
+    Future<void> openEdit(
+      WidgetTester tester, {
+      required GpsEditMomentCallback onSave,
+      String type = 'water',
+      String? title = 'Old title',
+      String? note = 'Old note',
+    }) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => showGpsEditMomentSheet(
+                context,
+                initialType: type,
+                initialTitle: title,
+                initialNote: note,
+                onSave: onSave,
+              ),
+              child: const Text('edit'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('edit'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('pre-fills metadata, trims values, and maps blanks to null',
+        (tester) async {
+      String? savedType;
+      String? savedTitle = 'unset';
+      String? savedNote = 'unset';
+      await openEdit(
+        tester,
+        onSave: ({required waypointType, title, note}) async {
+          savedType = waypointType;
+          savedTitle = title;
+          savedNote = note;
+          return true;
+        },
+      );
+
+      expect(find.text('Редагувати точку'), findsOneWidget);
+      expect(find.text('Old title'), findsOneWidget);
+      expect(find.text('Old note'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('gps_moment_type_danger')));
+      await tester.enterText(
+          find.byKey(const Key('gps_moment_title_field')), '  New title  ');
+      await tester.enterText(
+          find.byKey(const Key('gps_moment_note_field')), '   ');
+      await tester.tap(find.byKey(const Key('gps_moment_save_button')));
+      await tester.pumpAndSettle();
+
+      expect(savedType, 'danger');
+      expect(savedTitle, 'New title');
+      expect(savedNote, isNull);
+    });
+
+    testWidgets('title remains limited to 80 characters', (tester) async {
+      await openEdit(tester,
+          onSave: ({required waypointType, title, note}) async => true);
+
+      final field = tester
+          .widget<TextField>(find.byKey(const Key('gps_moment_title_field')));
+      expect(field.maxLength, 80);
+    });
+
+    testWidgets('save failure stays open and duplicate taps are guarded',
+        (tester) async {
+      var calls = 0;
+      await openEdit(
+        tester,
+        onSave: ({required waypointType, title, note}) async {
+          calls++;
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return false;
+        },
+      );
+
+      await tester.tap(find.byKey(const Key('gps_moment_save_button')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('gps_moment_save_button')),
+          warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(calls, 1);
+      expect(find.byKey(const Key('gps_edit_moment_sheet')), findsOneWidget);
+      expect(find.byKey(const Key('gps_moment_error')), findsOneWidget);
+      expect(find.text('Не вдалося зберегти зміни.'), findsOneWidget);
+    });
+  });
+
   group('M24/M25 responsive', () {
     const widths = [320.0, 360.0, 390.0, 430.0];
     const scales = [1.0, 1.3, 1.5];

@@ -276,7 +276,10 @@ void main() {
       );
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
       await db.updateWaypointMetadata(
-          ownerId: 'me', id: 'wp1', title: const Value('Nice view'));
+          ownerId: 'me',
+          recordedRouteId: 'r1',
+          id: 'wp1',
+          title: const Value('Nice view'));
       final waypoints =
           await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
       expect(waypoints.single.syncStatus, WaypointSyncStatus.pending);
@@ -295,10 +298,86 @@ void main() {
         longitude: 30.5,
         recordedAt: DateTime.utc(2026, 1, 1),
       );
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
       final waypoints =
           await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1');
       expect(waypoints, isEmpty);
+    });
+
+    test('Moment mutations require owner + route + waypoint id', () async {
+      await db.createLocalRecordedRoute(
+          id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
+      await db.addWaypoint(
+        id: 'wp1',
+        ownerId: 'me',
+        recordedRouteId: 'r1',
+        waypointType: 'custom',
+        title: 'Original',
+        latitude: 50.4,
+        longitude: 30.5,
+        recordedAt: DateTime.utc(2026, 1, 1),
+      );
+
+      await expectLater(
+        db.updateWaypointMetadata(
+          ownerId: 'me',
+          recordedRouteId: 'other-route',
+          id: 'wp1',
+          title: const Value('Wrong route'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+      await expectLater(
+        db.updateWaypointMetadata(
+          ownerId: 'someone-else',
+          recordedRouteId: 'r1',
+          id: 'wp1',
+          title: const Value('Wrong owner'),
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(
+          await db.deleteWaypoint(
+              ownerId: 'me', recordedRouteId: 'other-route', id: 'wp1'),
+          isFalse);
+      expect(
+          await db.deleteWaypoint(
+              ownerId: 'someone-else', recordedRouteId: 'r1', id: 'wp1'),
+          isFalse);
+
+      final unchanged =
+          (await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1')).single;
+      expect(unchanged.title, 'Original');
+    });
+
+    test('watchWaypoints emits edited metadata from Drift', () async {
+      await db.createLocalRecordedRoute(
+          id: 'r1', ownerId: 'me', startedAt: DateTime.utc(2026, 1, 1));
+      await db.addWaypoint(
+        id: 'wp1',
+        ownerId: 'me',
+        recordedRouteId: 'r1',
+        waypointType: 'custom',
+        latitude: 50.4,
+        longitude: 30.5,
+        recordedAt: DateTime.utc(2026, 1, 1),
+      );
+      final titles = <String?>[];
+      final sub = db
+          .watchWaypoints(ownerId: 'me', recordedRouteId: 'r1')
+          .listen((rows) => titles.add(rows.single.title));
+      await pumpEventQueue();
+
+      await db.updateWaypointMetadata(
+        ownerId: 'me',
+        recordedRouteId: 'r1',
+        id: 'wp1',
+        title: const Value('Edited'),
+      );
+      await pumpEventQueue();
+
+      expect(titles, [null, 'Edited']);
+      await sub.cancel();
     });
 
     test('getUnsyncedWaypoints returns only pending ones', () async {
@@ -356,7 +435,7 @@ void main() {
       await createRouteAndWaypoint(db,
           ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       // syncStatus is 'pending' by default -- never confirmed synced.
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
 
       expect(
           await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
@@ -370,7 +449,7 @@ void main() {
       await createRouteAndWaypoint(db,
           ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
 
       final tombstones =
           await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1');
@@ -391,7 +470,7 @@ void main() {
           .write(const LocalWaypointsCompanion(
               syncStatus: Value(WaypointSyncStatus.failed)));
 
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
 
       final tombstones =
           await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1');
@@ -403,7 +482,7 @@ void main() {
       await createRouteAndWaypoint(db,
           ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
 
       expect(
           await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1'), isEmpty);
@@ -419,7 +498,7 @@ void main() {
           .watchWaypoints(ownerId: 'me', recordedRouteId: 'r1')
           .listen((waypoints) => emissions.add(waypoints.length));
       await pumpEventQueue();
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
       await pumpEventQueue();
 
       expect(emissions, [1, 0]);
@@ -432,7 +511,7 @@ void main() {
       await createRouteAndWaypoint(db,
           ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
 
       final tombstones =
           await db.getTombstonedWaypoints(ownerId: 'me', recordedRouteId: 'r1');
@@ -443,11 +522,14 @@ void main() {
       await createRouteAndWaypoint(db,
           ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
 
       expect(
         () => db.updateWaypointMetadata(
-            ownerId: 'me', id: 'wp1', title: const Value('too late')),
+            ownerId: 'me',
+            recordedRouteId: 'r1',
+            id: 'wp1',
+            title: const Value('too late')),
         throwsA(isA<WaypointTombstonedException>()),
       );
     });
@@ -458,7 +540,7 @@ void main() {
       await createRouteAndWaypoint(db,
           ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
 
       expect(
         () => db.markWaypointSynced(ownerId: 'me', id: 'wp1'),
@@ -472,7 +554,7 @@ void main() {
       await createRouteAndWaypoint(db,
           ownerId: 'me', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'me', id: 'wp1');
-      await db.deleteWaypoint(ownerId: 'me', id: 'wp1');
+      await db.deleteWaypoint(ownerId: 'me', recordedRouteId: 'r1', id: 'wp1');
 
       await db.purgeAcknowledgedTombstone(ownerId: 'me', id: 'wp1');
 
@@ -500,7 +582,8 @@ void main() {
       await createRouteAndWaypoint(db,
           ownerId: 'accountA', routeId: 'r1', waypointId: 'wp1');
       await db.markWaypointSynced(ownerId: 'accountA', id: 'wp1');
-      await db.deleteWaypoint(ownerId: 'accountA', id: 'wp1');
+      await db.deleteWaypoint(
+          ownerId: 'accountA', recordedRouteId: 'r1', id: 'wp1');
 
       // Account B cannot see account A's tombstone through any query.
       expect(

@@ -5,6 +5,15 @@ import '../../../core/theme/app_design.dart';
 import '../local/gps_local_database.dart';
 import 'gps_add_moment_sheet.dart';
 
+typedef GpsEditMomentPersist = Future<bool> Function(
+  LocalWaypoint moment, {
+  required String waypointType,
+  String? title,
+  String? note,
+});
+
+typedef GpsDeleteMomentPersist = Future<bool> Function(LocalWaypoint moment);
+
 /// Presentation-only metadata for a persisted waypoint type. Persistence
 /// remains the canonical string stored in [LocalWaypoint.waypointType].
 class GpsMomentPresentation {
@@ -91,24 +100,77 @@ class GpsMomentInspectionButton extends StatelessWidget {
 Future<void> showGpsMomentsSheet(
   BuildContext context, {
   required List<LocalWaypoint> moments,
+  Stream<List<LocalWaypoint>>? momentsStream,
+  GpsEditMomentPersist? onEdit,
+  GpsDeleteMomentPersist? onDelete,
 }) =>
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => GpsMomentsSheet(moments: moments),
+      builder: (_) => GpsMomentsSheet(
+        moments: moments,
+        momentsStream: momentsStream,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      ),
     );
 
-/// A deliberately read-only Phase 1C inspection surface. Editing, deletion,
-/// photos, history, and Journey details remain later-phase concerns.
 class GpsMomentsSheet extends StatelessWidget {
-  const GpsMomentsSheet({required this.moments, super.key});
+  const GpsMomentsSheet({
+    required this.moments,
+    this.momentsStream,
+    this.onEdit,
+    this.onDelete,
+    super.key,
+  });
 
   final List<LocalWaypoint> moments;
+  final Stream<List<LocalWaypoint>>? momentsStream;
+  final GpsEditMomentPersist? onEdit;
+  final GpsDeleteMomentPersist? onDelete;
+
+  Future<void> _edit(BuildContext context, LocalWaypoint moment) async {
+    final edit = onEdit;
+    if (edit == null) return;
+    await showGpsEditMomentSheet(
+      context,
+      initialType: moment.waypointType,
+      initialTitle: moment.title,
+      initialNote: moment.note,
+      onSave: ({required waypointType, title, note}) => edit(
+        moment,
+        waypointType: waypointType,
+        title: title,
+        note: note,
+      ),
+    );
+  }
+
+  Future<void> _delete(BuildContext context, LocalWaypoint moment) async {
+    final delete = onDelete;
+    if (delete == null) return;
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => GpsDeleteMomentDialog(
+        onDelete: () => delete(moment),
+      ),
+    );
+  }
 
   @override
-  Widget build(BuildContext context) => Align(
+  Widget build(BuildContext context) => StreamBuilder<List<LocalWaypoint>>(
+        stream: momentsStream,
+        initialData: moments,
+        builder: (context, snapshot) => _buildSheet(
+          context,
+          snapshot.data ?? moments,
+        ),
+      );
+
+  Widget _buildSheet(BuildContext context, List<LocalWaypoint> liveMoments) =>
+      Align(
         alignment: Alignment.bottomCenter,
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -139,7 +201,7 @@ class GpsMomentsSheet extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            'Точки подорожі (${moments.length})',
+                            'Точки подорожі (${liveMoments.length})',
                             style: Theme.of(context)
                                 .textTheme
                                 .titleMedium
@@ -155,7 +217,7 @@ class GpsMomentsSheet extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: AppSpacing.sm),
-                    if (moments.isEmpty)
+                    if (liveMoments.isEmpty)
                       const Flexible(
                         child: SingleChildScrollView(
                           child: Padding(
@@ -177,10 +239,10 @@ class GpsMomentsSheet extends StatelessWidget {
                         child: ListView.separated(
                           key: const Key('gps_moments_list'),
                           shrinkWrap: true,
-                          itemCount: moments.length,
+                          itemCount: liveMoments.length,
                           separatorBuilder: (_, __) => const Divider(),
                           itemBuilder: (context, index) {
-                            final moment = moments[index];
+                            final moment = liveMoments[index];
                             final presentation =
                                 gpsMomentPresentation(moment.waypointType);
                             return ListTile(
@@ -212,6 +274,32 @@ class GpsMomentsSheet extends StatelessWidget {
                                   ),
                                 ],
                               ),
+                              trailing: onEdit == null && onDelete == null
+                                  ? null
+                                  : PopupMenuButton<String>(
+                                      key: Key(
+                                          'gps_moment_actions_${moment.id}'),
+                                      tooltip: 'Дії',
+                                      onSelected: (action) {
+                                        if (action == 'edit') {
+                                          _edit(context, moment);
+                                        } else if (action == 'delete') {
+                                          _delete(context, moment);
+                                        }
+                                      },
+                                      itemBuilder: (_) => [
+                                        if (onEdit != null)
+                                          const PopupMenuItem(
+                                            value: 'edit',
+                                            child: Text('Редагувати'),
+                                          ),
+                                        if (onDelete != null)
+                                          const PopupMenuItem(
+                                            value: 'delete',
+                                            child: Text('Видалити'),
+                                          ),
+                                      ],
+                                    ),
                             );
                           },
                         ),
@@ -222,5 +310,76 @@ class GpsMomentsSheet extends StatelessWidget {
             ),
           ),
         ),
+      );
+}
+
+class GpsDeleteMomentDialog extends StatefulWidget {
+  const GpsDeleteMomentDialog({required this.onDelete, super.key});
+
+  final Future<bool> Function() onDelete;
+
+  @override
+  State<GpsDeleteMomentDialog> createState() => _GpsDeleteMomentDialogState();
+}
+
+class _GpsDeleteMomentDialogState extends State<GpsDeleteMomentDialog> {
+  bool _deleting = false;
+  String? _error;
+
+  Future<void> _confirm() async {
+    if (_deleting) return;
+    setState(() {
+      _deleting = true;
+      _error = null;
+    });
+    try {
+      final deleted = await widget.onDelete();
+      if (!mounted) return;
+      if (deleted) {
+        Navigator.of(context).pop(true);
+      } else {
+        setState(() {
+          _deleting = false;
+          _error = 'Не вдалося видалити точку подорожі.';
+        });
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _deleting = false;
+        _error = 'Не вдалося видалити точку подорожі.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        key: const Key('gps_delete_moment_dialog'),
+        title: const Text('Видалити точку подорожі?'),
+        content: _error == null
+            ? null
+            : Text(
+                _error!,
+                key: const Key('gps_delete_moment_error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+        actions: [
+          TextButton(
+            key: const Key('gps_delete_moment_cancel_button'),
+            onPressed:
+                _deleting ? null : () => Navigator.of(context).pop(false),
+            child: const Text('Скасувати'),
+          ),
+          FilledButton(
+            key: const Key('gps_delete_moment_confirm_button'),
+            onPressed: _deleting ? null : _confirm,
+            child: _deleting
+                ? const SizedBox.square(
+                    dimension: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Видалити'),
+          ),
+        ],
       );
 }
