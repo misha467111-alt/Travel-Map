@@ -1,0 +1,226 @@
+import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+
+import '../../../core/theme/app_design.dart';
+import '../local/gps_local_database.dart';
+import 'gps_add_moment_sheet.dart';
+
+/// Presentation-only metadata for a persisted waypoint type. Persistence
+/// remains the canonical string stored in [LocalWaypoint.waypointType].
+class GpsMomentPresentation {
+  const GpsMomentPresentation({
+    required this.label,
+    required this.icon,
+    required this.markerHue,
+  });
+
+  final String label;
+  final IconData icon;
+  final double markerHue;
+}
+
+GpsMomentPresentation gpsMomentPresentation(String waypointType) {
+  final option = gpsMomentTypeOptions.cast<GpsMomentTypeOption?>().firstWhere(
+        (candidate) => candidate?.key == waypointType,
+        orElse: () => null,
+      );
+  final fallback = gpsMomentTypeOptions.last;
+  final resolved = option ?? fallback;
+  final hue = switch (waypointType) {
+    'danger' => BitmapDescriptor.hueRed,
+    'water' => BitmapDescriptor.hueAzure,
+    'campsite' || 'overnight' => BitmapDescriptor.hueGreen,
+    'photo_point' || 'viewpoint' => BitmapDescriptor.hueViolet,
+    'parking' => BitmapDescriptor.hueBlue,
+    'mountain_pass' => BitmapDescriptor.hueOrange,
+    _ => BitmapDescriptor.hueYellow,
+  };
+  return GpsMomentPresentation(
+    label: resolved.label,
+    icon: resolved.icon,
+    markerHue: hue,
+  );
+}
+
+String formatGpsMomentTime(DateTime recordedAt) {
+  final local = recordedAt.toLocal();
+  return '${local.hour.toString().padLeft(2, '0')}:'
+      '${local.minute.toString().padLeft(2, '0')}';
+}
+
+/// Pure read-only projection from persisted waypoints to Google Map markers.
+/// Positions are copied verbatim; no current-position lookup, snapping, or
+/// route-progress calculation occurs here.
+Set<Marker> buildGpsMomentMarkers(List<LocalWaypoint> moments) =>
+    moments.map((moment) {
+      final presentation = gpsMomentPresentation(moment.waypointType);
+      return Marker(
+        markerId: MarkerId('journey_moment_${moment.id}'),
+        position: LatLng(moment.latitude, moment.longitude),
+        zIndexInt: 500,
+        icon: BitmapDescriptor.defaultMarkerWithHue(presentation.markerHue),
+        infoWindow: InfoWindow(
+          title: moment.title ?? presentation.label,
+          snippet: moment.title == null
+              ? formatGpsMomentTime(moment.recordedAt)
+              : '${presentation.label} • '
+                  '${formatGpsMomentTime(moment.recordedAt)}',
+        ),
+      );
+    }).toSet();
+
+class GpsMomentInspectionButton extends StatelessWidget {
+  const GpsMomentInspectionButton({
+    required this.momentCount,
+    required this.onPressed,
+    super.key,
+  });
+
+  final int momentCount;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => OutlinedButton.icon(
+        key: const Key('gps_moment_inspection_button'),
+        onPressed: onPressed,
+        icon: const Icon(Icons.place_outlined),
+        label: Text('Точки подорожі ($momentCount)'),
+      );
+}
+
+Future<void> showGpsMomentsSheet(
+  BuildContext context, {
+  required List<LocalWaypoint> moments,
+}) =>
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => GpsMomentsSheet(moments: moments),
+    );
+
+/// A deliberately read-only Phase 1C inspection surface. Editing, deletion,
+/// photos, history, and Journey details remain later-phase concerns.
+class GpsMomentsSheet extends StatelessWidget {
+  const GpsMomentsSheet({required this.moments, super.key});
+
+  final List<LocalWaypoint> moments;
+
+  @override
+  Widget build(BuildContext context) => Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 480,
+            maxHeight: MediaQuery.sizeOf(context).height * 0.75,
+          ),
+          child: Material(
+            key: const Key('gps_moments_sheet'),
+            color: const Color(0xFF0D1C17),
+            clipBehavior: Clip.antiAlias,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.md,
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Точки подорожі (${moments.length})',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        IconButton(
+                          key: const Key('gps_moments_close_button'),
+                          tooltip: 'Закрити',
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    if (moments.isEmpty)
+                      const Flexible(
+                        child: SingleChildScrollView(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              vertical: AppSpacing.xl,
+                            ),
+                            child: Center(
+                              child: Text(
+                                'У цій подорожі ще немає точок.',
+                                key: Key('gps_moments_empty'),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.separated(
+                          key: const Key('gps_moments_list'),
+                          shrinkWrap: true,
+                          itemCount: moments.length,
+                          separatorBuilder: (_, __) => const Divider(),
+                          itemBuilder: (context, index) {
+                            final moment = moments[index];
+                            final presentation =
+                                gpsMomentPresentation(moment.waypointType);
+                            return ListTile(
+                              key: Key('gps_moment_row_${moment.id}'),
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(presentation.icon),
+                              title: Text(
+                                presentation.label,
+                                key: Key('gps_moment_type_${moment.id}'),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (moment.title != null)
+                                    Text(
+                                      moment.title!,
+                                      key: Key('gps_moment_title_${moment.id}'),
+                                    ),
+                                  if (moment.note != null)
+                                    Text(
+                                      moment.note!,
+                                      key: Key('gps_moment_note_${moment.id}'),
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  Text(
+                                    formatGpsMomentTime(moment.recordedAt),
+                                    key: Key('gps_moment_time_${moment.id}'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+}

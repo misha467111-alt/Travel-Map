@@ -12,6 +12,7 @@ import '../recording/gps_recording_controller.dart';
 import '../recording/gps_recording_state.dart';
 import '../sync/gps_sync_coordinator.dart';
 import 'gps_add_moment_sheet.dart';
+import 'gps_live_moments.dart';
 import 'gps_recording_controls.dart';
 import 'gps_recording_error_view.dart';
 import 'gps_recording_header.dart';
@@ -35,6 +36,17 @@ final gpsRoutePointsProvider = StreamProvider.autoDispose
         (ref, args) {
   final db = ref.watch(gpsLocalDatabaseProvider);
   return db.watchRoutePoints(
+      ownerId: args.ownerId, recordedRouteId: args.routeId);
+});
+
+/// Journey Phase 1C — route-scoped, reactive persisted Moments. Drift is
+/// the only source of truth; neither the controller nor this provider owns a
+/// mutable in-memory Moment list.
+final gpsRouteWaypointsProvider = StreamProvider.autoDispose
+    .family<List<LocalWaypoint>, ({String ownerId, String routeId})>(
+        (ref, args) {
+  final db = ref.watch(gpsLocalDatabaseProvider);
+  return db.watchWaypoints(
       ownerId: args.ownerId, recordedRouteId: args.routeId);
 });
 
@@ -138,19 +150,34 @@ class GpsRecordingMapBody extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final uiState = mapGpsRecordingUiState(state);
     final routeId = state.routeId;
+    final showLiveMoments = state.status == GpsRecordingStatus.recording ||
+        state.status == GpsRecordingStatus.paused ||
+        state.status == GpsRecordingStatus.recoverable;
 
     GpsSyncUiState? sync;
+    var moments = const <LocalWaypoint>[];
     if (routeId != null) {
       final routeAsync = ref.watch(
         gpsRouteSyncStateProvider((ownerId: ownerId, routeId: routeId)),
       );
       final route = routeAsync.value;
       if (route != null) sync = mapGpsSyncUiState(route.syncStatus);
+      if (showLiveMoments) {
+        moments = ref
+                .watch(gpsRouteWaypointsProvider(
+                    (ownerId: ownerId, routeId: routeId)))
+                .value ??
+            const <LocalWaypoint>[];
+      }
     }
 
     return Stack(
       children: [
-        _LiveTrackMap(ownerId: ownerId, routeId: routeId),
+        _LiveTrackMap(
+          ownerId: ownerId,
+          routeId: routeId,
+          showMoments: showLiveMoments,
+        ),
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
@@ -180,7 +207,7 @@ class GpsRecordingMapBody extends ConsumerWidget {
                 maxHeight: MediaQuery.sizeOf(context).height * 0.6,
               ),
               child: SingleChildScrollView(
-                child: _buildContent(context, uiState, sync),
+                child: _buildContent(context, uiState, sync, moments),
               ),
             ),
           ),
@@ -193,6 +220,7 @@ class GpsRecordingMapBody extends ConsumerWidget {
     BuildContext context,
     GpsRecordingUiState uiState,
     GpsSyncUiState? sync,
+    List<LocalWaypoint> moments,
   ) {
     final routeId = state.routeId;
 
@@ -259,6 +287,9 @@ class GpsRecordingMapBody extends ConsumerWidget {
                 onResume: controller.resume,
                 onFinish: controller.finish,
                 onAddWaypoint: () => _addMoment(context, controller),
+                momentCount: moments.length,
+                onViewMoments: () =>
+                    showGpsMomentsSheet(context, moments: moments),
                 onDiscard: controller.discard,
               ),
             ),
@@ -271,11 +302,28 @@ class GpsRecordingMapBody extends ConsumerWidget {
         return GpsRecordingStatusCard(uiState: uiState, sync: sync);
 
       case GpsRecordingStatus.recoverable:
-        return GpsRecoveryCard(
-          pointCount: uiState.stats.pointCount,
-          onResume: controller.resumeRecoverableRecording,
-          onFinish: controller.finishRecoverableRecording,
-          onDiscard: controller.discardRecoverableRecording,
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _OverlayPanel(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: GpsMomentInspectionButton(
+                  momentCount: moments.length,
+                  onPressed: () =>
+                      showGpsMomentsSheet(context, moments: moments),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            GpsRecoveryCard(
+              pointCount: uiState.stats.pointCount,
+              onResume: controller.resumeRecoverableRecording,
+              onFinish: controller.finishRecoverableRecording,
+              onDiscard: controller.discardRecoverableRecording,
+            ),
+          ],
         );
 
       case GpsRecordingStatus.permissionError:
@@ -348,10 +396,15 @@ class _OverlayPanel extends StatelessWidget {
 /// `onLongPress` are no-ops here since neither location creation nor
 /// route planning is available from this screen.
 class _LiveTrackMap extends ConsumerWidget {
-  const _LiveTrackMap({required this.ownerId, required this.routeId});
+  const _LiveTrackMap({
+    required this.ownerId,
+    required this.routeId,
+    required this.showMoments,
+  });
 
   final String ownerId;
   final String? routeId;
+  final bool showMoments;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -361,6 +414,7 @@ class _LiveTrackMap extends ConsumerWidget {
         position == null ? null : LatLng(position.latitude, position.longitude);
 
     var polylines = const <Polyline>{};
+    var momentMarkers = const <Marker>{};
     final currentRouteId = routeId;
     if (currentRouteId != null) {
       final pointsAsync = ref.watch(
@@ -381,6 +435,15 @@ class _LiveTrackMap extends ConsumerWidget {
           ),
         };
       }
+      if (showMoments) {
+        final moments = ref
+            .watch(gpsRouteWaypointsProvider(
+                (ownerId: ownerId, routeId: currentRouteId)))
+            .value;
+        if (moments != null) {
+          momentMarkers = buildGpsMomentMarkers(moments);
+        }
+      }
     }
 
     return ClusteredLocationMap(
@@ -389,6 +452,7 @@ class _LiveTrackMap extends ConsumerWidget {
       userPosition: userPosition,
       locations: const [],
       polylines: polylines,
+      additionalMarkers: momentMarkers,
       onLocationTap: (_) {},
       onLongPress: (_) {},
       onViewportChanged: (_) {},

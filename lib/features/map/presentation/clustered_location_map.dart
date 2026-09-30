@@ -17,6 +17,7 @@ class ClusteredLocationMap extends StatefulWidget {
     required this.onLocationTap,
     required this.onLongPress,
     required this.onViewportChanged,
+    this.additionalMarkers = const <Marker>{},
     this.overlays = const <Widget>[],
     this.additionalToolbarActions,
     this.beforeLocationToolbarAction,
@@ -32,6 +33,12 @@ class ClusteredLocationMap extends StatefulWidget {
   final ValueChanged<LocationModel> onLocationTap;
   final ValueChanged<LatLng> onLongPress;
   final ValueChanged<LatLngBounds> onViewportChanged;
+
+  /// Non-POI markers supplied by a hosting map mode (for example live
+  /// Journey Moments). They are deliberately not assigned to the location
+  /// cluster manager and therefore remain visually/semantically independent
+  /// from normal map locations.
+  final Set<Marker> additionalMarkers;
   final List<Widget> overlays;
   final Widget? additionalToolbarActions;
   final Widget? beforeLocationToolbarAction;
@@ -96,7 +103,8 @@ class _ClusteredLocationMapState extends State<ClusteredLocationMap> {
   }
 
   Set<Marker> get _markers {
-    final markers = widget.locations.map((location) {
+    final markers = <Marker>{...widget.additionalMarkers};
+    markers.addAll(widget.locations.map((location) {
       return Marker(
         markerId: MarkerId(location.id),
         clusterManagerId: _clusterManagerId,
@@ -110,7 +118,7 @@ class _ClusteredLocationMapState extends State<ClusteredLocationMap> {
         icon: CategoryMarkerIcons.forCategory(location.category),
         onTap: () => widget.onLocationTap(location),
       );
-    }).toSet();
+    }));
     final userIcon = CategoryMarkerIcons.userLocation;
     final userPosition = widget.userPosition;
     if (userIcon != null && userPosition != null) {

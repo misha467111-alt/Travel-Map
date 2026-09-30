@@ -213,6 +213,35 @@ void main() {
         ),
       );
 
+  Iterable<Marker> momentMarkers(WidgetTester tester) => map(tester)
+      .markers
+      .where((marker) => marker.markerId.value.startsWith('journey_moment_'));
+
+  Future<void> addPersistedMoment(
+    WidgetTester tester, {
+    required String id,
+    required String routeId,
+    String ownerId = 'me',
+    String type = 'custom',
+    String? title,
+    String? note,
+    double latitude = 50.45,
+    double longitude = 30.52,
+    DateTime? recordedAt,
+  }) async {
+    await tester.runAsync(() => db.addWaypoint(
+          id: id,
+          ownerId: ownerId,
+          recordedRouteId: routeId,
+          waypointType: type,
+          title: title,
+          note: note,
+          latitude: latitude,
+          longitude: longitude,
+          recordedAt: recordedAt ?? DateTime.utc(2026, 1, 1, 10),
+        ));
+  }
+
   group('D03 no duplicate recording on open', () {
     testWidgets('mounting the screen with an idle state never auto-starts',
         (tester) async {
@@ -616,5 +645,194 @@ void main() {
         });
       }
     }
+  });
+
+  group('Journey Phase 1C live Moments', () {
+    Future<void> mountAndFlush(WidgetTester tester) async {
+      await tester.pumpWidget(subject(controller.state));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await db.getWaypoints(
+          ownerId: 'me',
+          recordedRouteId: controller.state.routeId!,
+        );
+      });
+      await tester.pump();
+    }
+
+    testWidgets('C01 zero Moments renders no Moment markers', (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      await mountAndFlush(tester);
+
+      expect(momentMarkers(tester), isEmpty);
+      expect(find.text('Точки подорожі (0)'), findsOneWidget);
+      await disposeCleanly(tester);
+    });
+
+    testWidgets(
+        'C02-C05 persisted Moments render one-for-one at their persisted '
+        'coordinates with semantic type presentation', (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      final routeId = controller.state.routeId!;
+      await addPersistedMoment(
+        tester,
+        id: 'water-1',
+        routeId: routeId,
+        type: 'water',
+        title: 'Джерело',
+        latitude: 49.123,
+        longitude: 24.456,
+      );
+      await mountAndFlush(tester);
+
+      final marker = momentMarkers(tester).single;
+      expect(marker.markerId, const MarkerId('journey_moment_water-1'));
+      expect(marker.position, const LatLng(49.123, 24.456));
+      expect(marker.infoWindow.title, 'Джерело');
+      expect(marker.infoWindow.snippet, contains('Вода'));
+      expect(find.text('Точки подорожі (1)'), findsOneWidget);
+      await disposeCleanly(tester);
+    });
+
+    testWidgets('C03/C06/C07 only current-route Moments reach the map',
+        (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      final routeId = controller.state.routeId!;
+      await addPersistedMoment(tester,
+          id: 'current-1', routeId: routeId, type: 'viewpoint');
+      await addPersistedMoment(tester,
+          id: 'current-2', routeId: routeId, type: 'rest');
+      await addPersistedMoment(tester,
+          id: 'historical', routeId: 'another-route', type: 'danger');
+      await mountAndFlush(tester);
+
+      expect(momentMarkers(tester), hasLength(2));
+      expect(
+        momentMarkers(tester).map((marker) => marker.markerId.value),
+        isNot(contains('journey_moment_historical')),
+      );
+      expect(find.text('Точки подорожі (2)'), findsOneWidget);
+      await disposeCleanly(tester);
+    });
+
+    testWidgets(
+        'C08/C10/C24 a persisted Moment appears reactively while recording '
+        'without pausing', (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      final routeId = controller.state.routeId!;
+      await mountAndFlush(tester);
+      expect(momentMarkers(tester), isEmpty);
+
+      await addPersistedMoment(tester, id: 'reactive', routeId: routeId);
+      await waitUntil(tester, () async {
+        final moments =
+            await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId);
+        return moments.length == 1;
+      });
+      await tester.pump();
+
+      expect(momentMarkers(tester), hasLength(1));
+      expect(find.text('Точки подорожі (1)'), findsOneWidget);
+      expect(controller.state.status, GpsRecordingStatus.recording);
+      await disposeCleanly(tester);
+    });
+
+    testWidgets(
+        'C09/C10/C25 a persisted Moment appears reactively while paused '
+        'without resuming', (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      await realAwait(tester, controller.pause);
+      await settle(tester);
+      final routeId = controller.state.routeId!;
+      await mountAndFlush(tester);
+
+      await addPersistedMoment(tester,
+          id: 'paused-moment', routeId: routeId, type: 'rest');
+      await waitUntil(tester, () async {
+        final moments =
+            await db.getWaypoints(ownerId: 'me', recordedRouteId: routeId);
+        return moments.length == 1;
+      });
+      await tester.pump();
+
+      expect(momentMarkers(tester), hasLength(1));
+      expect(controller.state.status, GpsRecordingStatus.paused);
+      await disposeCleanly(tester);
+    });
+
+    testWidgets('C11 recovered Journey reads the same persisted Moments',
+        (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      final routeId = controller.state.routeId!;
+      await addPersistedMoment(tester,
+          id: 'before-restart', routeId: routeId, type: 'campsite');
+      controller.dispose();
+      controller = GpsRecordingController(
+        ownerId: 'me',
+        db: db,
+        locationSource: source,
+        notificationPermissionSource: notifications,
+      );
+      await waitUntil(
+          tester,
+          () async =>
+              controller.state.status == GpsRecordingStatus.recoverable);
+
+      await mountAndFlush(tester);
+
+      expect(controller.state.routeId, routeId);
+      expect(momentMarkers(tester), hasLength(1));
+      expect(find.text('Точки подорожі (1)'), findsOneWidget);
+      await disposeCleanly(tester);
+    });
+
+    testWidgets('discard removes the route from active Moment presentation',
+        (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      final routeId = controller.state.routeId!;
+      await addPersistedMoment(tester, id: 'discarded', routeId: routeId);
+      await mountAndFlush(tester);
+      expect(momentMarkers(tester), hasLength(1));
+
+      await realAwait(tester, controller.discard);
+      await settle(tester);
+      await tester.pumpWidget(subject(controller.state));
+      await tester.pump();
+
+      expect(controller.state.status, GpsRecordingStatus.idle);
+      expect(momentMarkers(tester), isEmpty);
+      expect(
+          find.byKey(const Key('gps_moment_inspection_button')), findsNothing);
+      final persisted = await tester.runAsync(
+          () => db.getWaypoints(ownerId: 'me', recordedRouteId: routeId));
+      expect(persisted, hasLength(1),
+          reason: 'discard semantics retain raw local data');
+      await disposeCleanly(tester);
+    });
+
+    testWidgets('completed Journey Moments are not shown as live Moments',
+        (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      final routeId = controller.state.routeId!;
+      await addPersistedMoment(tester, id: 'completed', routeId: routeId);
+      await realAwait(tester, controller.finish);
+      await settle(tester);
+
+      await mountAndFlush(tester);
+
+      expect(controller.state.status, GpsRecordingStatus.completed);
+      expect(momentMarkers(tester), isEmpty);
+      expect(
+          find.byKey(const Key('gps_moment_inspection_button')), findsNothing);
+      await disposeCleanly(tester);
+    });
   });
 }

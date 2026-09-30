@@ -980,7 +980,10 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
               t.ownerId.equals(ownerId) &
               t.recordedRouteId.equals(recordedRouteId) &
               t.syncStatus.equals(WaypointSyncStatus.pendingDelete).not())
-          ..orderBy([(t) => OrderingTerm.asc(t.recordedAt)]))
+          ..orderBy([
+            (t) => OrderingTerm.asc(t.recordedAt),
+            (t) => OrderingTerm.asc(t.id),
+          ]))
         .get();
     return rows.map(_normalizeWaypoint).toList(growable: false);
   }
@@ -995,7 +998,10 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
           t.ownerId.equals(ownerId) &
           t.recordedRouteId.equals(recordedRouteId) &
           t.syncStatus.equals(WaypointSyncStatus.pendingDelete).not())
-      ..orderBy([(t) => OrderingTerm.asc(t.recordedAt)]);
+      ..orderBy([
+        (t) => OrderingTerm.asc(t.recordedAt),
+        (t) => OrderingTerm.asc(t.id),
+      ]);
     return query
         .watch()
         .map((rows) => rows.map(_normalizeWaypoint).toList(growable: false));

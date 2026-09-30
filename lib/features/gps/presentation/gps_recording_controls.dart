@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_design.dart';
 import 'gps_discard_confirmation.dart';
+import 'gps_live_moments.dart';
 import 'gps_recording_ui_state.dart';
 
 /// Phase 4C — the primary/secondary/destructive control row for an
@@ -25,6 +26,8 @@ class GpsRecordingControls extends StatelessWidget {
     this.onResume,
     this.onFinish,
     this.onAddWaypoint,
+    this.momentCount,
+    this.onViewMoments,
     this.onDiscard,
   });
 
@@ -33,6 +36,8 @@ class GpsRecordingControls extends StatelessWidget {
   final VoidCallback? onResume;
   final VoidCallback? onFinish;
   final VoidCallback? onAddWaypoint;
+  final int? momentCount;
+  final VoidCallback? onViewMoments;
 
   /// Called at most once per confirmed tap -- only after the user
   /// explicitly confirms the discard dialog.
@@ -71,6 +76,11 @@ class GpsRecordingControls extends StatelessWidget {
             onPressed: onAddWaypoint,
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('Додати точку'),
+          ),
+        if (momentCount != null && onViewMoments != null)
+          GpsMomentInspectionButton(
+            momentCount: momentCount!,
+            onPressed: onViewMoments!,
           ),
         if (uiState.canFinish)
           FilledButton.icon(
