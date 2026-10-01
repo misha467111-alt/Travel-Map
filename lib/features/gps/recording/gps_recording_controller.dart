@@ -14,6 +14,7 @@ import '../location/location_source.dart';
 import '../location/notification_permission_source.dart';
 import '../local/gps_local_database.dart';
 import '../local/gps_local_database_provider.dart';
+import '../media/journey_media_storage.dart';
 import 'gps_recording_state.dart';
 import 'gps_sample_validation.dart';
 
@@ -70,7 +71,9 @@ class GpsRecordingController with WidgetsBindingObserver {
     required GpsLocalDatabase db,
     required LocationSource locationSource,
     required NotificationPermissionSource notificationPermissionSource,
-  })  : _ownerId = ownerId,
+    JourneyMediaStorage? mediaStorage,
+  })  : _mediaStorage = mediaStorage,
+        _ownerId = ownerId,
         _db = db,
         _locationSource = locationSource,
         _notificationPermissionSource = notificationPermissionSource,
@@ -84,6 +87,10 @@ class GpsRecordingController with WidgetsBindingObserver {
   final LocationSource _locationSource;
   final NotificationPermissionSource _notificationPermissionSource;
   final LocationPermissionService _permissionService;
+
+  /// Journey Phase 1H-B: only used to delete the media files of a deleted
+  /// Moment. `null` (tests, no media) leaves any such files unreferenced.
+  final JourneyMediaStorage? _mediaStorage;
 
   final _stateController = StreamController<GpsRecordingState>.broadcast();
   GpsRecordingState _state = GpsRecordingState.idle;
@@ -618,11 +625,15 @@ class GpsRecordingController with WidgetsBindingObserver {
     final routeId = _state.routeId;
     if (routeId == null) return false;
 
-    return _db.deleteWaypoint(
+    final result = await _db.deleteWaypointCollectingMediaPaths(
       ownerId: _ownerId,
       recordedRouteId: routeId,
       id: waypointId,
     );
+    // Files are removed only after the transaction (Moment + its media rows)
+    // committed; a crash here can only leave unreferenced files.
+    await _mediaStorage?.deleteFiles(result.mediaPaths);
+    return result.deleted;
   }
 
   // ---------------------------------------------------------------------
@@ -678,6 +689,7 @@ final gpsRecordingControllerProvider =
     db: db,
     locationSource: const GeolocatorLocationSource(),
     notificationPermissionSource: const PermissionHandlerNotificationSource(),
+    mediaStorage: ref.watch(journeyMediaStorageProvider),
   );
   ref.onDispose(controller.dispose);
   return controller;

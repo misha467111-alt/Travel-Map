@@ -1,6 +1,8 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
+import '../media/journey_media_storage.dart';
+
 part 'gps_local_database.g.dart';
 
 /// Status/event/sync-state string constants. Plain strings (not a DB-level
@@ -228,12 +230,92 @@ class LocalRouteEvents extends Table {
   Set<Column> get primaryKey => {recordedRouteId, seq};
 }
 
+/// Journey Phase 1H-B -- media kinds. Only `image` exists today; `video`
+/// can be added later as another constant with no schema change (the column
+/// is plain text, like every other status/type column in this database).
+abstract class JourneyMediaType {
+  static const image = 'image';
+}
+
+/// A media row's local sync/deletion state. Deliberately the same
+/// vocabulary and semantics as [WaypointSyncStatus] (including the
+/// [pendingDelete] tombstone), but its own type so a future media-sync phase
+/// never conflates the two entities.
+abstract class JourneyMediaSyncStatus {
+  static const pending = 'pending';
+  static const synced = 'synced';
+  static const failed = 'failed';
+  static const pendingDelete = 'pendingDelete';
+}
+
+/// Thrown when media cannot be attached to the requested target: the route
+/// is unknown for this owner, the Moment belongs to another route/owner (or
+/// is a deletion tombstone), or the position arguments are inconsistent.
+class JourneyMediaTargetException implements Exception {
+  JourneyMediaTargetException(this.message);
+  final String message;
+  @override
+  String toString() => 'JourneyMediaTargetException: $message';
+}
+
+/// What [GpsLocalDatabase.deleteJourneyMedia] did, so the caller (the file
+/// service) knows whether a server-side deletion is still owed.
+enum JourneyMediaDeleteOutcome {
+  /// No such media for this owner/route.
+  notFound,
+
+  /// Never-synced media: the row was physically removed.
+  removed,
+
+  /// Possibly-synced media: the row was kept as a `pendingDelete` tombstone
+  /// for a future sync to push. Nothing was acknowledged by any server.
+  tombstoned,
+}
+
+/// Journey Phase 1H-B -- one photo (later: video) belonging to a Journey.
+///
+/// The Journey owns the media (`recordedRouteId` is required); the Moment
+/// link (`waypointId`) is optional. The image bytes live in an app-owned file
+/// referenced by the RELATIVE path [localRelativePath]; Drift never holds
+/// bytes. `id` is a client UUID that will also be the future remote row id
+/// and object name, so the remote path is derived, not stored.
+///
+/// `latitude`/`longitude` are only set for standalone media (captured
+/// position); media attached to a Moment inherit the Moment's telemetry,
+/// which this table never copies or alters.
+///
+/// No foreign keys, matching the other GPS tables: isolation is enforced by
+/// every query being scoped by owner + route.
+@TableIndex(name: 'local_journey_media_route_idx', columns: {#recordedRouteId})
+@TableIndex(name: 'local_journey_media_waypoint_idx', columns: {#waypointId})
+@DataClassName('LocalJourneyMediaItem')
+class LocalJourneyMedia extends Table {
+  TextColumn get id => text()();
+  TextColumn get ownerId => text()();
+  TextColumn get recordedRouteId => text()();
+  TextColumn get waypointId => text().nullable()();
+  TextColumn get mediaType =>
+      text().withDefault(const Constant(JourneyMediaType.image))();
+  DateTimeColumn get capturedAt => dateTime()();
+  RealColumn get latitude => real().nullable()();
+  RealColumn get longitude => real().nullable()();
+  TextColumn get localRelativePath => text()();
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant(JourneyMediaSyncStatus.pending))();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     LocalRecordedRoutes,
     LocalRoutePoints,
     LocalWaypoints,
-    LocalRouteEvents
+    LocalRouteEvents,
+    LocalJourneyMedia
   ],
 )
 class GpsLocalDatabase extends _$GpsLocalDatabase {
@@ -249,7 +331,22 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   GpsLocalDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  /// v1 -> v2 (Journey Phase 1H-B): adds the local-only [LocalJourneyMedia]
+  /// table and its indexes. Purely additive, so every existing v1 row is
+  /// untouched. Fresh installs create everything at once.
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.createTable(localJourneyMedia);
+            await m.createIndex(localJourneyMediaRouteIdx);
+            await m.createIndex(localJourneyMediaWaypointIdx);
+          }
+        },
+      );
 
   static QueryExecutor _openConnection() {
     return driftDatabase(name: 'gps_local');
@@ -899,6 +996,317 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   }
 
   // ---------------------------------------------------------------------
+  // Journey media (Phase 1H-B) -- local only; no network, no bytes in Drift.
+  // ---------------------------------------------------------------------
+
+  /// Validates that media may be attached to this route (and Moment, if
+  /// any) for [ownerId]. Used by [insertJourneyMedia] inside its transaction
+  /// and by the file service *before* it writes a file, so a doomed request
+  /// never creates one. A route of any status is accepted: Journey-level
+  /// media may later be added to a completed Journey (the completed-route
+  /// guard protects GPS points, not media).
+  Future<void> assertJourneyMediaTarget({
+    required String ownerId,
+    required String recordedRouteId,
+    String? waypointId,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final route = await getRecordedRoute(ownerId: ownerId, id: recordedRouteId);
+    if (route == null) {
+      throw JourneyMediaTargetException(
+          'recorded route $recordedRouteId not found for this owner');
+    }
+    if ((latitude == null) != (longitude == null) ||
+        (latitude != null && !latitude.isFinite) ||
+        (longitude != null && !longitude.isFinite)) {
+      throw JourneyMediaTargetException(
+          'latitude/longitude must be both absent or both finite');
+    }
+    if (waypointId != null) {
+      if (latitude != null) {
+        throw JourneyMediaTargetException(
+            'media attached to a Moment inherits its telemetry and must not '
+            'carry its own position');
+      }
+      final waypoint = await (select(localWaypoints)
+            ..where((t) =>
+                t.ownerId.equals(ownerId) &
+                t.recordedRouteId.equals(recordedRouteId) &
+                t.id.equals(waypointId)))
+          .getSingleOrNull();
+      if (waypoint == null ||
+          waypoint.syncStatus == WaypointSyncStatus.pendingDelete) {
+        throw JourneyMediaTargetException(
+            'Moment $waypointId not found on this route for this owner');
+      }
+    }
+  }
+
+  /// Inserts one media row with `syncStatus = pending`. Never touches the
+  /// Moment (or any route telemetry). [localRelativePath] must be relative.
+  Future<LocalJourneyMediaItem> insertJourneyMedia({
+    required String id,
+    required String ownerId,
+    required String recordedRouteId,
+    String? waypointId,
+    String mediaType = JourneyMediaType.image,
+    required DateTime capturedAt,
+    double? latitude,
+    double? longitude,
+    required String localRelativePath,
+  }) {
+    return transaction(() async {
+      final expectedPath = JourneyMediaStorage.relativePathFor(
+        recordedRouteId: recordedRouteId,
+        mediaId: id,
+      );
+      if (localRelativePath != expectedPath) {
+        throw ArgumentError.value(
+          localRelativePath,
+          'localRelativePath',
+          'must be the canonical relative path for this route and media id',
+        );
+      }
+      await assertJourneyMediaTarget(
+        ownerId: ownerId,
+        recordedRouteId: recordedRouteId,
+        waypointId: waypointId,
+        latitude: latitude,
+        longitude: longitude,
+      );
+      final now = DateTime.now().toUtc();
+      await into(localJourneyMedia).insert(
+        LocalJourneyMediaCompanion.insert(
+          id: id,
+          ownerId: ownerId,
+          recordedRouteId: recordedRouteId,
+          waypointId: Value(waypointId),
+          mediaType: Value(mediaType),
+          capturedAt: capturedAt,
+          latitude: Value(latitude),
+          longitude: Value(longitude),
+          localRelativePath: localRelativePath,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+      final row = await (select(localJourneyMedia)
+            ..where((t) => t.id.equals(id)))
+          .getSingle();
+      return _normalizeMedia(row);
+    });
+  }
+
+  LocalJourneyMediaItem _normalizeMedia(LocalJourneyMediaItem row) =>
+      row.copyWith(
+        capturedAt: _utc(row.capturedAt),
+        createdAt: _utc(row.createdAt),
+        updatedAt: _utc(row.updatedAt),
+      );
+
+  SimpleSelectStatement<$LocalJourneyMediaTable, LocalJourneyMediaItem>
+      _visibleMediaQuery(String ownerId, String recordedRouteId) {
+    return select(localJourneyMedia)
+      ..where((t) =>
+          t.ownerId.equals(ownerId) &
+          t.recordedRouteId.equals(recordedRouteId) &
+          t.syncStatus.equals(JourneyMediaSyncStatus.pendingDelete).not())
+      ..orderBy([
+        (t) => OrderingTerm.asc(t.capturedAt),
+        (t) => OrderingTerm.asc(t.id),
+      ]);
+  }
+
+  /// This Journey's media, `capturedAt` ascending with `id` as the stable
+  /// tie-break. Tombstones are never returned (see
+  /// [getTombstonedJourneyMedia]). Metadata only: no file is touched.
+  Future<List<LocalJourneyMediaItem>> getJourneyMedia({
+    required String ownerId,
+    required String recordedRouteId,
+  }) async {
+    final rows = await _visibleMediaQuery(ownerId, recordedRouteId).get();
+    return rows.map(_normalizeMedia).toList(growable: false);
+  }
+
+  /// Reactive version of [getJourneyMedia].
+  Stream<List<LocalJourneyMediaItem>> watchJourneyMedia({
+    required String ownerId,
+    required String recordedRouteId,
+  }) {
+    return _visibleMediaQuery(ownerId, recordedRouteId)
+        .watch()
+        .map((rows) => rows.map(_normalizeMedia).toList(growable: false));
+  }
+
+  /// Media attached to one Moment, same ordering as [getJourneyMedia].
+  Future<List<LocalJourneyMediaItem>> getJourneyMediaForMoment({
+    required String ownerId,
+    required String recordedRouteId,
+    required String waypointId,
+  }) async {
+    final rows = await (_visibleMediaQuery(ownerId, recordedRouteId)
+          ..where((t) => t.waypointId.equals(waypointId)))
+        .get();
+    return rows.map(_normalizeMedia).toList(growable: false);
+  }
+
+  /// One media row (tombstones included), scoped by owner AND route so
+  /// knowing a media id alone is never enough.
+  Future<LocalJourneyMediaItem?> getJourneyMediaItem({
+    required String ownerId,
+    required String recordedRouteId,
+    required String id,
+  }) async {
+    final row = await (select(localJourneyMedia)
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.id.equals(id)))
+        .getSingleOrNull();
+    return row == null ? null : _normalizeMedia(row);
+  }
+
+  /// Media still awaiting its first upload (`pending`) -- the sync-oriented
+  /// counterpart of [getJourneyMedia]. Ordered like it.
+  Future<List<LocalJourneyMediaItem>> getPendingJourneyMedia({
+    required String ownerId,
+    required String recordedRouteId,
+  }) async {
+    final rows = await (_visibleMediaQuery(ownerId, recordedRouteId)
+          ..where((t) => t.syncStatus.equals(JourneyMediaSyncStatus.pending)))
+        .get();
+    return rows.map(_normalizeMedia).toList(growable: false);
+  }
+
+  /// Deletion tombstones owed to a future server-side deletion.
+  Future<List<LocalJourneyMediaItem>> getTombstonedJourneyMedia({
+    required String ownerId,
+    required String recordedRouteId,
+  }) async {
+    final rows = await (select(localJourneyMedia)
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.syncStatus.equals(JourneyMediaSyncStatus.pendingDelete))
+          ..orderBy([
+            (t) => OrderingTerm.asc(t.capturedAt),
+            (t) => OrderingTerm.asc(t.id),
+          ]))
+        .get();
+    return rows.map(_normalizeMedia).toList(growable: false);
+  }
+
+  /// Sync-safe media deletion, mirroring [deleteWaypoint]: never-synced
+  /// (`pending`) media is physically removed; `synced`/`failed` media (which
+  /// MAY exist remotely) becomes a `pendingDelete` tombstone. No server
+  /// acknowledgement is implied -- see
+  /// [purgeAcknowledgedJourneyMediaTombstone]. The caller is responsible
+  /// for the file (see `JourneyMediaService`).
+  Future<JourneyMediaDeleteOutcome> deleteJourneyMedia({
+    required String ownerId,
+    required String recordedRouteId,
+    required String id,
+  }) {
+    return transaction(() async {
+      final row = await getJourneyMediaItem(
+          ownerId: ownerId, recordedRouteId: recordedRouteId, id: id);
+      if (row == null) return JourneyMediaDeleteOutcome.notFound;
+      return _retireMediaRow(row);
+    });
+  }
+
+  Future<JourneyMediaDeleteOutcome> _retireMediaRow(
+      LocalJourneyMediaItem row) async {
+    if (row.syncStatus == JourneyMediaSyncStatus.pending) {
+      await (delete(localJourneyMedia)
+            ..where((t) =>
+                t.ownerId.equals(row.ownerId) &
+                t.recordedRouteId.equals(row.recordedRouteId) &
+                t.id.equals(row.id)))
+          .go();
+      return JourneyMediaDeleteOutcome.removed;
+    }
+    if (row.syncStatus != JourneyMediaSyncStatus.pendingDelete) {
+      await (update(localJourneyMedia)
+            ..where((t) =>
+                t.ownerId.equals(row.ownerId) &
+                t.recordedRouteId.equals(row.recordedRouteId) &
+                t.id.equals(row.id)))
+          .write(LocalJourneyMediaCompanion(
+        syncStatus: const Value(JourneyMediaSyncStatus.pendingDelete),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ));
+    }
+    return JourneyMediaDeleteOutcome.tombstoned;
+  }
+
+  /// Retires every media row linked to a Moment that is being deleted, with
+  /// the same pending-removed / synced-tombstoned rule as
+  /// [deleteJourneyMedia]. Returns the relative paths of all affected files
+  /// so the caller can delete them. Must run inside the Moment-delete
+  /// transaction.
+  Future<List<String>> _retireMediaForMoment({
+    required String ownerId,
+    required String recordedRouteId,
+    required String waypointId,
+  }) async {
+    final rows = await (select(localJourneyMedia)
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.waypointId.equals(waypointId)))
+        .get();
+    final paths = <String>[];
+    for (final row in rows) {
+      await _retireMediaRow(row);
+      paths.add(row.localRelativePath);
+    }
+    return paths;
+  }
+
+  /// Marks media as uploaded. Primitive for a future media-sync phase; no
+  /// current code calls it. Throws on a tombstone (use
+  /// [purgeAcknowledgedJourneyMediaTombstone]).
+  Future<void> markJourneyMediaSynced({
+    required String ownerId,
+    required String recordedRouteId,
+    required String id,
+  }) async {
+    final row = await getJourneyMediaItem(
+        ownerId: ownerId, recordedRouteId: recordedRouteId, id: id);
+    if (row == null) return;
+    if (row.syncStatus == JourneyMediaSyncStatus.pendingDelete) {
+      throw StateError('markJourneyMediaSynced called on tombstoned media $id');
+    }
+    await (update(localJourneyMedia)
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.id.equals(id)))
+        .write(LocalJourneyMediaCompanion(
+      syncStatus: const Value(JourneyMediaSyncStatus.synced),
+      updatedAt: Value(DateTime.now().toUtc()),
+    ));
+  }
+
+  /// Physically removes a tombstone. Only for a future sync phase, after a
+  /// server has acknowledged the deletion; nothing in this phase calls it.
+  Future<void> purgeAcknowledgedJourneyMediaTombstone({
+    required String ownerId,
+    required String recordedRouteId,
+    required String id,
+  }) async {
+    await (delete(localJourneyMedia)
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.id.equals(id) &
+              t.syncStatus.equals(JourneyMediaSyncStatus.pendingDelete)))
+        .go();
+  }
+
+  // ---------------------------------------------------------------------
   // Waypoints
   // ---------------------------------------------------------------------
 
@@ -1002,39 +1410,61 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   /// [purgeAcknowledgedTombstone] to physically remove it once the
   /// server has confirmed the deletion — never call that from general
   /// app code before that confirmation exists.
+  ///
+  /// Journey Phase 1H-B: any media linked to the Moment goes through the
+  /// same lifecycle in the same transaction (never-synced media removed,
+  /// possibly-synced media tombstoned). This method cannot delete files; a
+  /// caller that owns the file store must use
+  /// [deleteWaypointCollectingMediaPaths] and delete the returned files.
   Future<bool> deleteWaypoint({
     required String ownerId,
     required String recordedRouteId,
     required String id,
   }) async {
-    final row = await (select(localWaypoints)
-          ..where((t) =>
-              t.ownerId.equals(ownerId) &
-              t.recordedRouteId.equals(recordedRouteId) &
-              t.id.equals(id)))
-        .getSingleOrNull();
-    if (row == null) return false;
+    final result = await deleteWaypointCollectingMediaPaths(
+        ownerId: ownerId, recordedRouteId: recordedRouteId, id: id);
+    return result.deleted;
+  }
 
-    if (row.syncStatus == WaypointSyncStatus.pending) {
-      await (delete(localWaypoints)
+  /// [deleteWaypoint], additionally returning the relative paths of every
+  /// media file whose row was removed or tombstoned with the Moment.
+  Future<({bool deleted, List<String> mediaPaths})>
+      deleteWaypointCollectingMediaPaths({
+    required String ownerId,
+    required String recordedRouteId,
+    required String id,
+  }) {
+    return transaction(() async {
+      final row = await (select(localWaypoints)
             ..where((t) =>
                 t.ownerId.equals(ownerId) &
                 t.recordedRouteId.equals(recordedRouteId) &
                 t.id.equals(id)))
-          .go();
-      return true;
-    }
+          .getSingleOrNull();
+      if (row == null) return (deleted: false, mediaPaths: <String>[]);
 
-    await (update(localWaypoints)
-          ..where((t) =>
-              t.ownerId.equals(ownerId) &
-              t.recordedRouteId.equals(recordedRouteId) &
-              t.id.equals(id)))
-        .write(LocalWaypointsCompanion(
-      syncStatus: const Value(WaypointSyncStatus.pendingDelete),
-      updatedAt: Value(DateTime.now().toUtc()),
-    ));
-    return true;
+      if (row.syncStatus == WaypointSyncStatus.pending) {
+        await (delete(localWaypoints)
+              ..where((t) =>
+                  t.ownerId.equals(ownerId) &
+                  t.recordedRouteId.equals(recordedRouteId) &
+                  t.id.equals(id)))
+            .go();
+      } else {
+        await (update(localWaypoints)
+              ..where((t) =>
+                  t.ownerId.equals(ownerId) &
+                  t.recordedRouteId.equals(recordedRouteId) &
+                  t.id.equals(id)))
+            .write(LocalWaypointsCompanion(
+          syncStatus: const Value(WaypointSyncStatus.pendingDelete),
+          updatedAt: Value(DateTime.now().toUtc()),
+        ));
+      }
+      final paths = await _retireMediaForMoment(
+          ownerId: ownerId, recordedRouteId: recordedRouteId, waypointId: id);
+      return (deleted: true, mediaPaths: paths);
+    });
   }
 
   /// Waypoints visible to normal UI use — a tombstone

@@ -2495,6 +2495,619 @@ class LocalRouteEventsCompanion extends UpdateCompanion<LocalRouteEvent> {
   }
 }
 
+class $LocalJourneyMediaTable extends LocalJourneyMedia
+    with TableInfo<$LocalJourneyMediaTable, LocalJourneyMediaItem> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $LocalJourneyMediaTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _ownerIdMeta =
+      const VerificationMeta('ownerId');
+  @override
+  late final GeneratedColumn<String> ownerId = GeneratedColumn<String>(
+      'owner_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _recordedRouteIdMeta =
+      const VerificationMeta('recordedRouteId');
+  @override
+  late final GeneratedColumn<String> recordedRouteId = GeneratedColumn<String>(
+      'recorded_route_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _waypointIdMeta =
+      const VerificationMeta('waypointId');
+  @override
+  late final GeneratedColumn<String> waypointId = GeneratedColumn<String>(
+      'waypoint_id', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _mediaTypeMeta =
+      const VerificationMeta('mediaType');
+  @override
+  late final GeneratedColumn<String> mediaType = GeneratedColumn<String>(
+      'media_type', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(JourneyMediaType.image));
+  static const VerificationMeta _capturedAtMeta =
+      const VerificationMeta('capturedAt');
+  @override
+  late final GeneratedColumn<DateTime> capturedAt = GeneratedColumn<DateTime>(
+      'captured_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _latitudeMeta =
+      const VerificationMeta('latitude');
+  @override
+  late final GeneratedColumn<double> latitude = GeneratedColumn<double>(
+      'latitude', aliasedName, true,
+      type: DriftSqlType.double, requiredDuringInsert: false);
+  static const VerificationMeta _longitudeMeta =
+      const VerificationMeta('longitude');
+  @override
+  late final GeneratedColumn<double> longitude = GeneratedColumn<double>(
+      'longitude', aliasedName, true,
+      type: DriftSqlType.double, requiredDuringInsert: false);
+  static const VerificationMeta _localRelativePathMeta =
+      const VerificationMeta('localRelativePath');
+  @override
+  late final GeneratedColumn<String> localRelativePath =
+      GeneratedColumn<String>('local_relative_path', aliasedName, false,
+          type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _syncStatusMeta =
+      const VerificationMeta('syncStatus');
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+      'sync_status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(JourneyMediaSyncStatus.pending));
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        ownerId,
+        recordedRouteId,
+        waypointId,
+        mediaType,
+        capturedAt,
+        latitude,
+        longitude,
+        localRelativePath,
+        syncStatus,
+        createdAt,
+        updatedAt
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'local_journey_media';
+  @override
+  VerificationContext validateIntegrity(
+      Insertable<LocalJourneyMediaItem> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('owner_id')) {
+      context.handle(_ownerIdMeta,
+          ownerId.isAcceptableOrUnknown(data['owner_id']!, _ownerIdMeta));
+    } else if (isInserting) {
+      context.missing(_ownerIdMeta);
+    }
+    if (data.containsKey('recorded_route_id')) {
+      context.handle(
+          _recordedRouteIdMeta,
+          recordedRouteId.isAcceptableOrUnknown(
+              data['recorded_route_id']!, _recordedRouteIdMeta));
+    } else if (isInserting) {
+      context.missing(_recordedRouteIdMeta);
+    }
+    if (data.containsKey('waypoint_id')) {
+      context.handle(
+          _waypointIdMeta,
+          waypointId.isAcceptableOrUnknown(
+              data['waypoint_id']!, _waypointIdMeta));
+    }
+    if (data.containsKey('media_type')) {
+      context.handle(_mediaTypeMeta,
+          mediaType.isAcceptableOrUnknown(data['media_type']!, _mediaTypeMeta));
+    }
+    if (data.containsKey('captured_at')) {
+      context.handle(
+          _capturedAtMeta,
+          capturedAt.isAcceptableOrUnknown(
+              data['captured_at']!, _capturedAtMeta));
+    } else if (isInserting) {
+      context.missing(_capturedAtMeta);
+    }
+    if (data.containsKey('latitude')) {
+      context.handle(_latitudeMeta,
+          latitude.isAcceptableOrUnknown(data['latitude']!, _latitudeMeta));
+    }
+    if (data.containsKey('longitude')) {
+      context.handle(_longitudeMeta,
+          longitude.isAcceptableOrUnknown(data['longitude']!, _longitudeMeta));
+    }
+    if (data.containsKey('local_relative_path')) {
+      context.handle(
+          _localRelativePathMeta,
+          localRelativePath.isAcceptableOrUnknown(
+              data['local_relative_path']!, _localRelativePathMeta));
+    } else if (isInserting) {
+      context.missing(_localRelativePathMeta);
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+          _syncStatusMeta,
+          syncStatus.isAcceptableOrUnknown(
+              data['sync_status']!, _syncStatusMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  LocalJourneyMediaItem map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LocalJourneyMediaItem(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      ownerId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}owner_id'])!,
+      recordedRouteId: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}recorded_route_id'])!,
+      waypointId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}waypoint_id']),
+      mediaType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}media_type'])!,
+      capturedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}captured_at'])!,
+      latitude: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}latitude']),
+      longitude: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}longitude']),
+      localRelativePath: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}local_relative_path'])!,
+      syncStatus: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}sync_status'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $LocalJourneyMediaTable createAlias(String alias) {
+    return $LocalJourneyMediaTable(attachedDatabase, alias);
+  }
+}
+
+class LocalJourneyMediaItem extends DataClass
+    implements Insertable<LocalJourneyMediaItem> {
+  final String id;
+  final String ownerId;
+  final String recordedRouteId;
+  final String? waypointId;
+  final String mediaType;
+  final DateTime capturedAt;
+  final double? latitude;
+  final double? longitude;
+  final String localRelativePath;
+  final String syncStatus;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const LocalJourneyMediaItem(
+      {required this.id,
+      required this.ownerId,
+      required this.recordedRouteId,
+      this.waypointId,
+      required this.mediaType,
+      required this.capturedAt,
+      this.latitude,
+      this.longitude,
+      required this.localRelativePath,
+      required this.syncStatus,
+      required this.createdAt,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['owner_id'] = Variable<String>(ownerId);
+    map['recorded_route_id'] = Variable<String>(recordedRouteId);
+    if (!nullToAbsent || waypointId != null) {
+      map['waypoint_id'] = Variable<String>(waypointId);
+    }
+    map['media_type'] = Variable<String>(mediaType);
+    map['captured_at'] = Variable<DateTime>(capturedAt);
+    if (!nullToAbsent || latitude != null) {
+      map['latitude'] = Variable<double>(latitude);
+    }
+    if (!nullToAbsent || longitude != null) {
+      map['longitude'] = Variable<double>(longitude);
+    }
+    map['local_relative_path'] = Variable<String>(localRelativePath);
+    map['sync_status'] = Variable<String>(syncStatus);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  LocalJourneyMediaCompanion toCompanion(bool nullToAbsent) {
+    return LocalJourneyMediaCompanion(
+      id: Value(id),
+      ownerId: Value(ownerId),
+      recordedRouteId: Value(recordedRouteId),
+      waypointId: waypointId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(waypointId),
+      mediaType: Value(mediaType),
+      capturedAt: Value(capturedAt),
+      latitude: latitude == null && nullToAbsent
+          ? const Value.absent()
+          : Value(latitude),
+      longitude: longitude == null && nullToAbsent
+          ? const Value.absent()
+          : Value(longitude),
+      localRelativePath: Value(localRelativePath),
+      syncStatus: Value(syncStatus),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory LocalJourneyMediaItem.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LocalJourneyMediaItem(
+      id: serializer.fromJson<String>(json['id']),
+      ownerId: serializer.fromJson<String>(json['ownerId']),
+      recordedRouteId: serializer.fromJson<String>(json['recordedRouteId']),
+      waypointId: serializer.fromJson<String?>(json['waypointId']),
+      mediaType: serializer.fromJson<String>(json['mediaType']),
+      capturedAt: serializer.fromJson<DateTime>(json['capturedAt']),
+      latitude: serializer.fromJson<double?>(json['latitude']),
+      longitude: serializer.fromJson<double?>(json['longitude']),
+      localRelativePath: serializer.fromJson<String>(json['localRelativePath']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'ownerId': serializer.toJson<String>(ownerId),
+      'recordedRouteId': serializer.toJson<String>(recordedRouteId),
+      'waypointId': serializer.toJson<String?>(waypointId),
+      'mediaType': serializer.toJson<String>(mediaType),
+      'capturedAt': serializer.toJson<DateTime>(capturedAt),
+      'latitude': serializer.toJson<double?>(latitude),
+      'longitude': serializer.toJson<double?>(longitude),
+      'localRelativePath': serializer.toJson<String>(localRelativePath),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  LocalJourneyMediaItem copyWith(
+          {String? id,
+          String? ownerId,
+          String? recordedRouteId,
+          Value<String?> waypointId = const Value.absent(),
+          String? mediaType,
+          DateTime? capturedAt,
+          Value<double?> latitude = const Value.absent(),
+          Value<double?> longitude = const Value.absent(),
+          String? localRelativePath,
+          String? syncStatus,
+          DateTime? createdAt,
+          DateTime? updatedAt}) =>
+      LocalJourneyMediaItem(
+        id: id ?? this.id,
+        ownerId: ownerId ?? this.ownerId,
+        recordedRouteId: recordedRouteId ?? this.recordedRouteId,
+        waypointId: waypointId.present ? waypointId.value : this.waypointId,
+        mediaType: mediaType ?? this.mediaType,
+        capturedAt: capturedAt ?? this.capturedAt,
+        latitude: latitude.present ? latitude.value : this.latitude,
+        longitude: longitude.present ? longitude.value : this.longitude,
+        localRelativePath: localRelativePath ?? this.localRelativePath,
+        syncStatus: syncStatus ?? this.syncStatus,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  LocalJourneyMediaItem copyWithCompanion(LocalJourneyMediaCompanion data) {
+    return LocalJourneyMediaItem(
+      id: data.id.present ? data.id.value : this.id,
+      ownerId: data.ownerId.present ? data.ownerId.value : this.ownerId,
+      recordedRouteId: data.recordedRouteId.present
+          ? data.recordedRouteId.value
+          : this.recordedRouteId,
+      waypointId:
+          data.waypointId.present ? data.waypointId.value : this.waypointId,
+      mediaType: data.mediaType.present ? data.mediaType.value : this.mediaType,
+      capturedAt:
+          data.capturedAt.present ? data.capturedAt.value : this.capturedAt,
+      latitude: data.latitude.present ? data.latitude.value : this.latitude,
+      longitude: data.longitude.present ? data.longitude.value : this.longitude,
+      localRelativePath: data.localRelativePath.present
+          ? data.localRelativePath.value
+          : this.localRelativePath,
+      syncStatus:
+          data.syncStatus.present ? data.syncStatus.value : this.syncStatus,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LocalJourneyMediaItem(')
+          ..write('id: $id, ')
+          ..write('ownerId: $ownerId, ')
+          ..write('recordedRouteId: $recordedRouteId, ')
+          ..write('waypointId: $waypointId, ')
+          ..write('mediaType: $mediaType, ')
+          ..write('capturedAt: $capturedAt, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude, ')
+          ..write('localRelativePath: $localRelativePath, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id,
+      ownerId,
+      recordedRouteId,
+      waypointId,
+      mediaType,
+      capturedAt,
+      latitude,
+      longitude,
+      localRelativePath,
+      syncStatus,
+      createdAt,
+      updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LocalJourneyMediaItem &&
+          other.id == this.id &&
+          other.ownerId == this.ownerId &&
+          other.recordedRouteId == this.recordedRouteId &&
+          other.waypointId == this.waypointId &&
+          other.mediaType == this.mediaType &&
+          other.capturedAt == this.capturedAt &&
+          other.latitude == this.latitude &&
+          other.longitude == this.longitude &&
+          other.localRelativePath == this.localRelativePath &&
+          other.syncStatus == this.syncStatus &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class LocalJourneyMediaCompanion
+    extends UpdateCompanion<LocalJourneyMediaItem> {
+  final Value<String> id;
+  final Value<String> ownerId;
+  final Value<String> recordedRouteId;
+  final Value<String?> waypointId;
+  final Value<String> mediaType;
+  final Value<DateTime> capturedAt;
+  final Value<double?> latitude;
+  final Value<double?> longitude;
+  final Value<String> localRelativePath;
+  final Value<String> syncStatus;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const LocalJourneyMediaCompanion({
+    this.id = const Value.absent(),
+    this.ownerId = const Value.absent(),
+    this.recordedRouteId = const Value.absent(),
+    this.waypointId = const Value.absent(),
+    this.mediaType = const Value.absent(),
+    this.capturedAt = const Value.absent(),
+    this.latitude = const Value.absent(),
+    this.longitude = const Value.absent(),
+    this.localRelativePath = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  LocalJourneyMediaCompanion.insert({
+    required String id,
+    required String ownerId,
+    required String recordedRouteId,
+    this.waypointId = const Value.absent(),
+    this.mediaType = const Value.absent(),
+    required DateTime capturedAt,
+    this.latitude = const Value.absent(),
+    this.longitude = const Value.absent(),
+    required String localRelativePath,
+    this.syncStatus = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        ownerId = Value(ownerId),
+        recordedRouteId = Value(recordedRouteId),
+        capturedAt = Value(capturedAt),
+        localRelativePath = Value(localRelativePath),
+        createdAt = Value(createdAt),
+        updatedAt = Value(updatedAt);
+  static Insertable<LocalJourneyMediaItem> custom({
+    Expression<String>? id,
+    Expression<String>? ownerId,
+    Expression<String>? recordedRouteId,
+    Expression<String>? waypointId,
+    Expression<String>? mediaType,
+    Expression<DateTime>? capturedAt,
+    Expression<double>? latitude,
+    Expression<double>? longitude,
+    Expression<String>? localRelativePath,
+    Expression<String>? syncStatus,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (ownerId != null) 'owner_id': ownerId,
+      if (recordedRouteId != null) 'recorded_route_id': recordedRouteId,
+      if (waypointId != null) 'waypoint_id': waypointId,
+      if (mediaType != null) 'media_type': mediaType,
+      if (capturedAt != null) 'captured_at': capturedAt,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (localRelativePath != null) 'local_relative_path': localRelativePath,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  LocalJourneyMediaCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? ownerId,
+      Value<String>? recordedRouteId,
+      Value<String?>? waypointId,
+      Value<String>? mediaType,
+      Value<DateTime>? capturedAt,
+      Value<double?>? latitude,
+      Value<double?>? longitude,
+      Value<String>? localRelativePath,
+      Value<String>? syncStatus,
+      Value<DateTime>? createdAt,
+      Value<DateTime>? updatedAt,
+      Value<int>? rowid}) {
+    return LocalJourneyMediaCompanion(
+      id: id ?? this.id,
+      ownerId: ownerId ?? this.ownerId,
+      recordedRouteId: recordedRouteId ?? this.recordedRouteId,
+      waypointId: waypointId ?? this.waypointId,
+      mediaType: mediaType ?? this.mediaType,
+      capturedAt: capturedAt ?? this.capturedAt,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
+      localRelativePath: localRelativePath ?? this.localRelativePath,
+      syncStatus: syncStatus ?? this.syncStatus,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (ownerId.present) {
+      map['owner_id'] = Variable<String>(ownerId.value);
+    }
+    if (recordedRouteId.present) {
+      map['recorded_route_id'] = Variable<String>(recordedRouteId.value);
+    }
+    if (waypointId.present) {
+      map['waypoint_id'] = Variable<String>(waypointId.value);
+    }
+    if (mediaType.present) {
+      map['media_type'] = Variable<String>(mediaType.value);
+    }
+    if (capturedAt.present) {
+      map['captured_at'] = Variable<DateTime>(capturedAt.value);
+    }
+    if (latitude.present) {
+      map['latitude'] = Variable<double>(latitude.value);
+    }
+    if (longitude.present) {
+      map['longitude'] = Variable<double>(longitude.value);
+    }
+    if (localRelativePath.present) {
+      map['local_relative_path'] = Variable<String>(localRelativePath.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LocalJourneyMediaCompanion(')
+          ..write('id: $id, ')
+          ..write('ownerId: $ownerId, ')
+          ..write('recordedRouteId: $recordedRouteId, ')
+          ..write('waypointId: $waypointId, ')
+          ..write('mediaType: $mediaType, ')
+          ..write('capturedAt: $capturedAt, ')
+          ..write('latitude: $latitude, ')
+          ..write('longitude: $longitude, ')
+          ..write('localRelativePath: $localRelativePath, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$GpsLocalDatabase extends GeneratedDatabase {
   _$GpsLocalDatabase(QueryExecutor e) : super(e);
   $GpsLocalDatabaseManager get managers => $GpsLocalDatabaseManager(this);
@@ -2505,6 +3118,8 @@ abstract class _$GpsLocalDatabase extends GeneratedDatabase {
   late final $LocalWaypointsTable localWaypoints = $LocalWaypointsTable(this);
   late final $LocalRouteEventsTable localRouteEvents =
       $LocalRouteEventsTable(this);
+  late final $LocalJourneyMediaTable localJourneyMedia =
+      $LocalJourneyMediaTable(this);
   late final Index localRecordedRoutesOwnerIdx = Index(
       'local_recorded_routes_owner_idx',
       'CREATE INDEX local_recorded_routes_owner_idx ON local_recorded_routes (owner_id)');
@@ -2513,6 +3128,12 @@ abstract class _$GpsLocalDatabase extends GeneratedDatabase {
       'CREATE UNIQUE INDEX local_recorded_routes_one_active_per_owner ON local_recorded_routes (owner_id) WHERE status IN (\'recording\', \'paused\')');
   late final Index localWaypointsRouteIdx = Index('local_waypoints_route_idx',
       'CREATE INDEX local_waypoints_route_idx ON local_waypoints (recorded_route_id)');
+  late final Index localJourneyMediaRouteIdx = Index(
+      'local_journey_media_route_idx',
+      'CREATE INDEX local_journey_media_route_idx ON local_journey_media (recorded_route_id)');
+  late final Index localJourneyMediaWaypointIdx = Index(
+      'local_journey_media_waypoint_idx',
+      'CREATE INDEX local_journey_media_waypoint_idx ON local_journey_media (waypoint_id)');
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2522,9 +3143,12 @@ abstract class _$GpsLocalDatabase extends GeneratedDatabase {
         localRoutePoints,
         localWaypoints,
         localRouteEvents,
+        localJourneyMedia,
         localRecordedRoutesOwnerIdx,
         localRecordedRoutesOneActivePerOwner,
-        localWaypointsRouteIdx
+        localWaypointsRouteIdx,
+        localJourneyMediaRouteIdx,
+        localJourneyMediaWaypointIdx
       ];
 }
 
@@ -3708,6 +4332,297 @@ typedef $$LocalRouteEventsTableProcessedTableManager = ProcessedTableManager<
     ),
     LocalRouteEvent,
     PrefetchHooks Function()>;
+typedef $$LocalJourneyMediaTableCreateCompanionBuilder
+    = LocalJourneyMediaCompanion Function({
+  required String id,
+  required String ownerId,
+  required String recordedRouteId,
+  Value<String?> waypointId,
+  Value<String> mediaType,
+  required DateTime capturedAt,
+  Value<double?> latitude,
+  Value<double?> longitude,
+  required String localRelativePath,
+  Value<String> syncStatus,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$LocalJourneyMediaTableUpdateCompanionBuilder
+    = LocalJourneyMediaCompanion Function({
+  Value<String> id,
+  Value<String> ownerId,
+  Value<String> recordedRouteId,
+  Value<String?> waypointId,
+  Value<String> mediaType,
+  Value<DateTime> capturedAt,
+  Value<double?> latitude,
+  Value<double?> longitude,
+  Value<String> localRelativePath,
+  Value<String> syncStatus,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
+
+class $$LocalJourneyMediaTableFilterComposer
+    extends Composer<_$GpsLocalDatabase, $LocalJourneyMediaTable> {
+  $$LocalJourneyMediaTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get ownerId => $composableBuilder(
+      column: $table.ownerId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get recordedRouteId => $composableBuilder(
+      column: $table.recordedRouteId,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get waypointId => $composableBuilder(
+      column: $table.waypointId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get mediaType => $composableBuilder(
+      column: $table.mediaType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get capturedAt => $composableBuilder(
+      column: $table.capturedAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get latitude => $composableBuilder(
+      column: $table.latitude, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get longitude => $composableBuilder(
+      column: $table.longitude, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get localRelativePath => $composableBuilder(
+      column: $table.localRelativePath,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+}
+
+class $$LocalJourneyMediaTableOrderingComposer
+    extends Composer<_$GpsLocalDatabase, $LocalJourneyMediaTable> {
+  $$LocalJourneyMediaTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get ownerId => $composableBuilder(
+      column: $table.ownerId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get recordedRouteId => $composableBuilder(
+      column: $table.recordedRouteId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get waypointId => $composableBuilder(
+      column: $table.waypointId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get mediaType => $composableBuilder(
+      column: $table.mediaType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get capturedAt => $composableBuilder(
+      column: $table.capturedAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get latitude => $composableBuilder(
+      column: $table.latitude, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get longitude => $composableBuilder(
+      column: $table.longitude, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get localRelativePath => $composableBuilder(
+      column: $table.localRelativePath,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+}
+
+class $$LocalJourneyMediaTableAnnotationComposer
+    extends Composer<_$GpsLocalDatabase, $LocalJourneyMediaTable> {
+  $$LocalJourneyMediaTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get ownerId =>
+      $composableBuilder(column: $table.ownerId, builder: (column) => column);
+
+  GeneratedColumn<String> get recordedRouteId => $composableBuilder(
+      column: $table.recordedRouteId, builder: (column) => column);
+
+  GeneratedColumn<String> get waypointId => $composableBuilder(
+      column: $table.waypointId, builder: (column) => column);
+
+  GeneratedColumn<String> get mediaType =>
+      $composableBuilder(column: $table.mediaType, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get capturedAt => $composableBuilder(
+      column: $table.capturedAt, builder: (column) => column);
+
+  GeneratedColumn<double> get latitude =>
+      $composableBuilder(column: $table.latitude, builder: (column) => column);
+
+  GeneratedColumn<double> get longitude =>
+      $composableBuilder(column: $table.longitude, builder: (column) => column);
+
+  GeneratedColumn<String> get localRelativePath => $composableBuilder(
+      column: $table.localRelativePath, builder: (column) => column);
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+      column: $table.syncStatus, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$LocalJourneyMediaTableTableManager extends RootTableManager<
+    _$GpsLocalDatabase,
+    $LocalJourneyMediaTable,
+    LocalJourneyMediaItem,
+    $$LocalJourneyMediaTableFilterComposer,
+    $$LocalJourneyMediaTableOrderingComposer,
+    $$LocalJourneyMediaTableAnnotationComposer,
+    $$LocalJourneyMediaTableCreateCompanionBuilder,
+    $$LocalJourneyMediaTableUpdateCompanionBuilder,
+    (
+      LocalJourneyMediaItem,
+      BaseReferences<_$GpsLocalDatabase, $LocalJourneyMediaTable,
+          LocalJourneyMediaItem>
+    ),
+    LocalJourneyMediaItem,
+    PrefetchHooks Function()> {
+  $$LocalJourneyMediaTableTableManager(
+      _$GpsLocalDatabase db, $LocalJourneyMediaTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$LocalJourneyMediaTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$LocalJourneyMediaTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$LocalJourneyMediaTableAnnotationComposer(
+                  $db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> ownerId = const Value.absent(),
+            Value<String> recordedRouteId = const Value.absent(),
+            Value<String?> waypointId = const Value.absent(),
+            Value<String> mediaType = const Value.absent(),
+            Value<DateTime> capturedAt = const Value.absent(),
+            Value<double?> latitude = const Value.absent(),
+            Value<double?> longitude = const Value.absent(),
+            Value<String> localRelativePath = const Value.absent(),
+            Value<String> syncStatus = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              LocalJourneyMediaCompanion(
+            id: id,
+            ownerId: ownerId,
+            recordedRouteId: recordedRouteId,
+            waypointId: waypointId,
+            mediaType: mediaType,
+            capturedAt: capturedAt,
+            latitude: latitude,
+            longitude: longitude,
+            localRelativePath: localRelativePath,
+            syncStatus: syncStatus,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String ownerId,
+            required String recordedRouteId,
+            Value<String?> waypointId = const Value.absent(),
+            Value<String> mediaType = const Value.absent(),
+            required DateTime capturedAt,
+            Value<double?> latitude = const Value.absent(),
+            Value<double?> longitude = const Value.absent(),
+            required String localRelativePath,
+            Value<String> syncStatus = const Value.absent(),
+            required DateTime createdAt,
+            required DateTime updatedAt,
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              LocalJourneyMediaCompanion.insert(
+            id: id,
+            ownerId: ownerId,
+            recordedRouteId: recordedRouteId,
+            waypointId: waypointId,
+            mediaType: mediaType,
+            capturedAt: capturedAt,
+            latitude: latitude,
+            longitude: longitude,
+            localRelativePath: localRelativePath,
+            syncStatus: syncStatus,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable<$LocalJourneyMediaTable, LocalJourneyMediaItem>(
+                        table),
+                    BaseReferences<_$GpsLocalDatabase, $LocalJourneyMediaTable,
+                        LocalJourneyMediaItem>(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$LocalJourneyMediaTableProcessedTableManager = ProcessedTableManager<
+    _$GpsLocalDatabase,
+    $LocalJourneyMediaTable,
+    LocalJourneyMediaItem,
+    $$LocalJourneyMediaTableFilterComposer,
+    $$LocalJourneyMediaTableOrderingComposer,
+    $$LocalJourneyMediaTableAnnotationComposer,
+    $$LocalJourneyMediaTableCreateCompanionBuilder,
+    $$LocalJourneyMediaTableUpdateCompanionBuilder,
+    (
+      LocalJourneyMediaItem,
+      BaseReferences<_$GpsLocalDatabase, $LocalJourneyMediaTable,
+          LocalJourneyMediaItem>
+    ),
+    LocalJourneyMediaItem,
+    PrefetchHooks Function()>;
 
 class $GpsLocalDatabaseManager {
   final _$GpsLocalDatabase _db;
@@ -3720,4 +4635,6 @@ class $GpsLocalDatabaseManager {
       $$LocalWaypointsTableTableManager(_db, _db.localWaypoints);
   $$LocalRouteEventsTableTableManager get localRouteEvents =>
       $$LocalRouteEventsTableTableManager(_db, _db.localRouteEvents);
+  $$LocalJourneyMediaTableTableManager get localJourneyMedia =>
+      $$LocalJourneyMediaTableTableManager(_db, _db.localJourneyMedia);
 }
