@@ -9,6 +9,7 @@ import '../local/gps_local_database_provider.dart';
 import '../recording/gps_journey_details.dart';
 import '../recording/gps_journey_statistics.dart';
 import 'gps_journey_history_view.dart' show formatGpsHistoryDate;
+import 'gps_journey_photos.dart';
 import 'gps_journey_summary_view.dart';
 import 'gps_live_moments.dart';
 import 'gps_sync_badge.dart';
@@ -328,6 +329,7 @@ class _TimelineRow extends StatelessWidget {
               ? moment.title!.trim()
               : presentation.label,
         ),
+      GpsTimelineEntryKind.media => (Icons.photo_outlined, 'Фото'),
       GpsTimelineEntryKind.finished => (
           Icons.check_circle_outline,
           'Подорож завершено'
@@ -357,6 +359,21 @@ class _TimelineRow extends StatelessWidget {
                         key: const Key('gps_timeline_moment_note'),
                         style: theme.textTheme.bodyMedium),
                 ],
+                if (entry.photos.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.sm),
+                    child: Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        for (final photo in entry.photos)
+                          GpsJourneyPhotoThumb(
+                            key: ValueKey('gps_timeline_photo_${photo.id}'),
+                            item: photo,
+                          ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),
