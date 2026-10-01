@@ -907,4 +907,56 @@ void main() {
       await disposeCleanly(tester);
     });
   });
+
+  group('Journey Phase 1H-C photo entry point', () {
+    Future<void> mount(WidgetTester tester) async {
+      await tester.pumpWidget(subject(controller.state));
+      await tester.pump();
+      await tester.runAsync(() async {
+        await db.getWaypoints(
+          ownerId: 'me',
+          recordedRouteId: controller.state.routeId!,
+        );
+      });
+      await tester.pump();
+    }
+
+    testWidgets('recording offers the photo action', (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      await mount(tester);
+
+      expect(find.byKey(const Key('gps_add_photo_button')), findsOneWidget);
+      await disposeCleanly(tester);
+    });
+
+    testWidgets('paused still offers the photo action', (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      await realAwait(tester, controller.pause);
+      await settle(tester);
+      await mount(tester);
+
+      expect(controller.state.status, GpsRecordingStatus.paused);
+      expect(find.byKey(const Key('gps_add_photo_button')), findsOneWidget);
+      await disposeCleanly(tester);
+    });
+
+    testWidgets('idle and completed offer no photo action', (tester) async {
+      await tester.pumpWidget(subject(GpsRecordingState.idle));
+      await tester.pump();
+      expect(find.byKey(const Key('gps_add_photo_button')), findsNothing);
+      await settle(tester);
+
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      await realAwait(tester, controller.finish);
+      await settle(tester);
+      await mount(tester);
+
+      expect(controller.state.status, GpsRecordingStatus.completed);
+      expect(find.byKey(const Key('gps_add_photo_button')), findsNothing);
+      await disposeCleanly(tester);
+    });
+  });
 }

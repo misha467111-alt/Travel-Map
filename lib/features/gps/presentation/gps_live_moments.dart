@@ -1,9 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/theme/app_design.dart';
 import '../local/gps_local_database.dart';
 import 'gps_add_moment_sheet.dart';
+import 'gps_photo_capture.dart';
 
 typedef GpsEditMomentPersist = Future<bool> Function(
   LocalWaypoint moment, {
@@ -13,6 +16,11 @@ typedef GpsEditMomentPersist = Future<bool> Function(
 });
 
 typedef GpsDeleteMomentPersist = Future<bool> Function(LocalWaypoint moment);
+
+/// Journey Phase 1H-C: saves a photo picked for one Moment. Returns a
+/// non-null result on success, `null` if not allowed; throws on failure.
+typedef GpsMomentPhotoPersist = Future<Object?> Function(
+    LocalWaypoint moment, Uint8List bytes);
 
 /// Presentation-only metadata for a persisted waypoint type. Persistence
 /// remains the canonical string stored in [LocalWaypoint.waypointType].
@@ -103,6 +111,10 @@ Future<void> showGpsMomentsSheet(
   Stream<List<LocalWaypoint>>? momentsStream,
   GpsEditMomentPersist? onEdit,
   GpsDeleteMomentPersist? onDelete,
+  List<LocalJourneyMediaItem> media = const [],
+  Stream<List<LocalJourneyMediaItem>>? mediaStream,
+  GpsPhotoSource? photoSource,
+  GpsMomentPhotoPersist? onAddPhoto,
 }) =>
     showModalBottomSheet<void>(
       context: context,
@@ -114,6 +126,10 @@ Future<void> showGpsMomentsSheet(
         momentsStream: momentsStream,
         onEdit: onEdit,
         onDelete: onDelete,
+        media: media,
+        mediaStream: mediaStream,
+        photoSource: photoSource,
+        onAddPhoto: onAddPhoto,
       ),
     );
 
@@ -123,6 +139,10 @@ class GpsMomentsSheet extends StatelessWidget {
     this.momentsStream,
     this.onEdit,
     this.onDelete,
+    this.media = const [],
+    this.mediaStream,
+    this.photoSource,
+    this.onAddPhoto,
     super.key,
   });
 
@@ -130,6 +150,14 @@ class GpsMomentsSheet extends StatelessWidget {
   final Stream<List<LocalWaypoint>>? momentsStream;
   final GpsEditMomentPersist? onEdit;
   final GpsDeleteMomentPersist? onDelete;
+
+  /// Journey Phase 1H-C: persisted media (only its Moment links are used,
+  /// for the per-row photo count) and the photo-adding capability. Adding is
+  /// offered only when both [photoSource] and [onAddPhoto] are given.
+  final List<LocalJourneyMediaItem> media;
+  final Stream<List<LocalJourneyMediaItem>>? mediaStream;
+  final GpsPhotoSource? photoSource;
+  final GpsMomentPhotoPersist? onAddPhoto;
 
   Future<void> _edit(BuildContext context, LocalWaypoint moment) async {
     final edit = onEdit;
@@ -159,17 +187,84 @@ class GpsMomentsSheet extends StatelessWidget {
     );
   }
 
+  Widget? _trailing(
+    BuildContext context,
+    LocalWaypoint moment,
+    List<LocalJourneyMediaItem> liveMedia,
+  ) {
+    final photoCount =
+        liveMedia.where((item) => item.waypointId == moment.id).length;
+    final source = photoSource;
+    final addPhoto = onAddPhoto;
+    final canAddPhoto = source != null && addPhoto != null;
+    final hasMenu = onEdit != null || onDelete != null;
+    if (photoCount == 0 && !canAddPhoto && !hasMenu) return null;
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (photoCount > 0)
+          KeyedSubtree(
+            key: Key('gps_moment_photo_count_${moment.id}'),
+            child: GpsMomentPhotoCount(count: photoCount),
+          ),
+        if (canAddPhoto)
+          GpsAddPhotoButton(
+            key: Key('gps_moment_add_photo_${moment.id}'),
+            compact: true,
+            tooltip: 'Додати фото до точки',
+            source: source,
+            save: (bytes) => addPhoto(moment, bytes),
+          ),
+        if (hasMenu)
+          PopupMenuButton<String>(
+            key: Key('gps_moment_actions_${moment.id}'),
+            tooltip: 'Дії',
+            onSelected: (action) {
+              if (action == 'edit') {
+                _edit(context, moment);
+              } else if (action == 'delete') {
+                _delete(context, moment);
+              }
+            },
+            itemBuilder: (_) => [
+              if (onEdit != null)
+                const PopupMenuItem(
+                  value: 'edit',
+                  child: Text('Редагувати'),
+                ),
+              if (onDelete != null)
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Видалити'),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) => StreamBuilder<List<LocalWaypoint>>(
         stream: momentsStream,
         initialData: moments,
-        builder: (context, snapshot) => _buildSheet(
-          context,
-          snapshot.data ?? moments,
+        builder: (context, snapshot) =>
+            StreamBuilder<List<LocalJourneyMediaItem>>(
+          stream: mediaStream,
+          initialData: media,
+          builder: (context, mediaSnapshot) => _buildSheet(
+            context,
+            snapshot.data ?? moments,
+            mediaSnapshot.data ?? media,
+          ),
         ),
       );
 
-  Widget _buildSheet(BuildContext context, List<LocalWaypoint> liveMoments) =>
+  Widget _buildSheet(
+    BuildContext context,
+    List<LocalWaypoint> liveMoments,
+    List<LocalJourneyMediaItem> liveMedia,
+  ) =>
       Align(
         alignment: Alignment.bottomCenter,
         child: ConstrainedBox(
@@ -274,32 +369,7 @@ class GpsMomentsSheet extends StatelessWidget {
                                   ),
                                 ],
                               ),
-                              trailing: onEdit == null && onDelete == null
-                                  ? null
-                                  : PopupMenuButton<String>(
-                                      key: Key(
-                                          'gps_moment_actions_${moment.id}'),
-                                      tooltip: 'Дії',
-                                      onSelected: (action) {
-                                        if (action == 'edit') {
-                                          _edit(context, moment);
-                                        } else if (action == 'delete') {
-                                          _delete(context, moment);
-                                        }
-                                      },
-                                      itemBuilder: (_) => [
-                                        if (onEdit != null)
-                                          const PopupMenuItem(
-                                            value: 'edit',
-                                            child: Text('Редагувати'),
-                                          ),
-                                        if (onDelete != null)
-                                          const PopupMenuItem(
-                                            value: 'delete',
-                                            child: Text('Видалити'),
-                                          ),
-                                      ],
-                                    ),
+                              trailing: _trailing(context, moment, liveMedia),
                             );
                           },
                         ),

@@ -125,17 +125,37 @@ void main() {
     final db = open();
     addTearDown(db.close);
 
+    // The v1 Journey r1 is completed (immutable for media); a new active
+    // Journey in the upgraded database accepts media.
+    await db.createLocalRecordedRoute(id: 'r2', ownerId: 'me', startedAt: t0);
+    await db.addWaypoint(
+        id: 'm2',
+        ownerId: 'me',
+        recordedRouteId: 'r2',
+        waypointType: 'custom',
+        latitude: 50,
+        longitude: 30,
+        recordedAt: t0);
     final item = await db.insertJourneyMedia(
       id: 'x1',
       ownerId: 'me',
-      recordedRouteId: 'r1',
-      waypointId: 'm1',
+      recordedRouteId: 'r2',
+      waypointId: 'm2',
       capturedAt: t0,
-      localRelativePath: 'journey_media/r1/x1.jpg',
+      localRelativePath: 'journey_media/r2/x1.jpg',
     );
 
     expect(item.syncStatus, JourneyMediaSyncStatus.pending);
-    expect(item.waypointId, 'm1');
+    expect(item.waypointId, 'm2');
+    await expectLater(
+        db.insertJourneyMedia(
+            id: 'x2',
+            ownerId: 'me',
+            recordedRouteId: 'r1',
+            capturedAt: t0,
+            localRelativePath: 'journey_media/r1/x2.jpg'),
+        throwsA(isA<JourneyMediaRouteNotActiveException>()),
+        reason: 'a pre-existing completed Journey stays closed to media');
   });
 
   test('A the migration is deterministic and idempotent across reopenings',
@@ -143,12 +163,14 @@ void main() {
     await seedV1();
     final first = open();
     final firstObjects = await mediaSchemaObjects(first);
+    await first.createLocalRecordedRoute(
+        id: 'r2', ownerId: 'me', startedAt: t0);
     await first.insertJourneyMedia(
         id: 'x1',
         ownerId: 'me',
-        recordedRouteId: 'r1',
+        recordedRouteId: 'r2',
         capturedAt: t0,
-        localRelativePath: 'journey_media/r1/x1.jpg');
+        localRelativePath: 'journey_media/r2/x1.jpg');
     await first.close();
 
     final second = open();
@@ -157,7 +179,7 @@ void main() {
     expect(await userVersion(second), 2);
     expect(await mediaSchemaObjects(second), firstObjects);
     expect(
-        (await second.getJourneyMedia(ownerId: 'me', recordedRouteId: 'r1'))
+        (await second.getJourneyMedia(ownerId: 'me', recordedRouteId: 'r2'))
             .single
             .id,
         'x1',

@@ -258,6 +258,17 @@ class JourneyMediaTargetException implements Exception {
   String toString() => 'JourneyMediaTargetException: $message';
 }
 
+/// The route exists for this owner but is no longer (or never was) in a
+/// lifecycle state that accepts new media -- i.e. it is not `recording` or
+/// `paused`. This is what an in-flight photo hits when Finish (or Discard)
+/// commits before the photo's row is inserted.
+class JourneyMediaRouteNotActiveException extends JourneyMediaTargetException {
+  JourneyMediaRouteNotActiveException(this.routeStatus)
+      : super('route is $routeStatus; media can only be added while it is '
+            'recording or paused');
+  final String routeStatus;
+}
+
 /// What [GpsLocalDatabase.deleteJourneyMedia] did, so the caller (the file
 /// service) knows whether a server-side deletion is still owed.
 enum JourneyMediaDeleteOutcome {
@@ -1002,9 +1013,17 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   /// Validates that media may be attached to this route (and Moment, if
   /// any) for [ownerId]. Used by [insertJourneyMedia] inside its transaction
   /// and by the file service *before* it writes a file, so a doomed request
-  /// never creates one. A route of any status is accepted: Journey-level
-  /// media may later be added to a completed Journey (the completed-route
-  /// guard protects GPS points, not media).
+  /// never creates one.
+  ///
+  /// Lifecycle invariant (Phase 1H-C race closure): media may only be added
+  /// while the PERSISTED route status is `recording` or `paused`; a
+  /// completed or discarded route throws
+  /// [JourneyMediaRouteNotActiveException]. The authoritative call is the
+  /// one inside [insertJourneyMedia]'s transaction, which serializes with
+  /// [finishRecordingLocally] on the same executor -- so once Finish has
+  /// committed, no later media insert can succeed, whatever stale
+  /// controller state the caller held. (Adding media to a completed Journey
+  /// is a deliberate future decision, not something this guard allows.)
   Future<void> assertJourneyMediaTarget({
     required String ownerId,
     required String recordedRouteId,
@@ -1016,6 +1035,10 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     if (route == null) {
       throw JourneyMediaTargetException(
           'recorded route $recordedRouteId not found for this owner');
+    }
+    if (route.status != RecordedRouteStatus.recording &&
+        route.status != RecordedRouteStatus.paused) {
+      throw JourneyMediaRouteNotActiveException(route.status);
     }
     if ((latitude == null) != (longitude == null) ||
         (latitude != null && !latitude.isFinite) ||

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart'
@@ -14,6 +15,7 @@ import '../location/location_source.dart';
 import '../location/notification_permission_source.dart';
 import '../local/gps_local_database.dart';
 import '../local/gps_local_database_provider.dart';
+import '../media/journey_media_service.dart';
 import '../media/journey_media_storage.dart';
 import 'gps_recording_state.dart';
 import 'gps_sample_validation.dart';
@@ -72,7 +74,9 @@ class GpsRecordingController with WidgetsBindingObserver {
     required LocationSource locationSource,
     required NotificationPermissionSource notificationPermissionSource,
     JourneyMediaStorage? mediaStorage,
+    JourneyMediaService? mediaService,
   })  : _mediaStorage = mediaStorage,
+        _mediaService = mediaService,
         _ownerId = ownerId,
         _db = db,
         _locationSource = locationSource,
@@ -91,6 +95,9 @@ class GpsRecordingController with WidgetsBindingObserver {
   /// Journey Phase 1H-B: only used to delete the media files of a deleted
   /// Moment. `null` (tests, no media) leaves any such files unreferenced.
   final JourneyMediaStorage? _mediaStorage;
+
+  /// Journey Phase 1H-C: creates Journey photos. `null` disables them.
+  final JourneyMediaService? _mediaService;
 
   final _stateController = StreamController<GpsRecordingState>.broadcast();
   GpsRecordingState _state = GpsRecordingState.idle;
@@ -615,6 +622,46 @@ class GpsRecordingController with WidgetsBindingObserver {
     return true;
   }
 
+  /// Journey Phase 1H-C -- adds one photo to the active Journey, entirely
+  /// locally, through [JourneyMediaService] (normalized app-owned file +
+  /// `pending` Drift row). Available only while recording or paused: it
+  /// neither pauses nor resumes, never touches the location stream, and is
+  /// unavailable while recoverable/completed/discarded/idle. Returns the
+  /// created item, or `null` if creation is not allowed in the current
+  /// state (or no media service is configured). Service failures
+  /// (unsupported image, invalid Moment, I/O) propagate to the caller after
+  /// the service has cleaned up after itself.
+  ///
+  /// [waypointId] attaches the photo to that Moment (which must belong to
+  /// this Journey; Moment telemetry is never touched). Without it the photo
+  /// is standalone and takes its position ONLY from the latest
+  /// already-accepted GPS sample -- never a new fix, never a new
+  /// subscription; with no accepted sample the position stays null.
+  Future<LocalJourneyMediaItem?> addPhoto({
+    required Uint8List sourceBytes,
+    String? waypointId,
+  }) async {
+    final service = _mediaService;
+    if (service == null) return null;
+    if (_state.status != GpsRecordingStatus.recording &&
+        _state.status != GpsRecordingStatus.paused) {
+      debugPrint('gps addPhoto: rejected, not recording/paused');
+      return null;
+    }
+    final routeId = _state.routeId;
+    if (routeId == null) return null;
+
+    final accepted = waypointId == null ? _state.lastAccepted : null;
+    return service.addImageBytes(
+      ownerId: _ownerId,
+      recordedRouteId: routeId,
+      sourceBytes: sourceBytes,
+      waypointId: waypointId,
+      latitude: accepted?.latitude,
+      longitude: accepted?.longitude,
+    );
+  }
+
   /// Deletes a Moment through Drift's existing sync-safe delete/tombstone
   /// lifecycle. The recording state and location stream are never touched.
   Future<bool> deleteWaypoint({required String waypointId}) async {
@@ -690,6 +737,7 @@ final gpsRecordingControllerProvider =
     locationSource: const GeolocatorLocationSource(),
     notificationPermissionSource: const PermissionHandlerNotificationSource(),
     mediaStorage: ref.watch(journeyMediaStorageProvider),
+    mediaService: ref.watch(journeyMediaServiceProvider),
   );
   ref.onDispose(controller.dispose);
   return controller;

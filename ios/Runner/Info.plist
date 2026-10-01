@@ -40,9 +40,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Камера потрібна для додавання фотографій до локацій.</string>
+	<string>Камера потрібна для додавання фотографій до локацій та подорожей.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Доступ до галереї потрібен для вибору фотографій локацій.</string>
+	<string>Доступ до галереї потрібен для вибору фотографій локацій та подорожей.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Ваше місцезнаходження потрібне для показу позиції на карті та побудови маршрутів.</string>
 	<key>UIBackgroundModes</key>

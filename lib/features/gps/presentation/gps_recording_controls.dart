@@ -29,6 +29,7 @@ class GpsRecordingControls extends StatelessWidget {
     this.onAddWaypoint,
     this.momentCount,
     this.onViewMoments,
+    this.photoButton,
     this.onDiscard,
   });
 
@@ -39,6 +40,10 @@ class GpsRecordingControls extends StatelessWidget {
   final VoidCallback? onAddWaypoint;
   final int? momentCount;
   final VoidCallback? onViewMoments;
+
+  /// Journey Phase 1H-C: the standalone-photo entry point. Shown only while
+  /// the session is active (recording/paused), like adding a Moment.
+  final Widget? photoButton;
 
   /// Called at most once per confirmed tap -- only after the user
   /// explicitly confirms the discard dialog.
@@ -84,6 +89,7 @@ class GpsRecordingControls extends StatelessWidget {
             icon: const Icon(Icons.add_location_alt_outlined),
             label: const Text('Додати точку'),
           ),
+        if (uiState.canAddWaypoint && photoButton != null) photoButton!,
         if (momentCount != null && onViewMoments != null)
           GpsMomentInspectionButton(
             momentCount: momentCount!,

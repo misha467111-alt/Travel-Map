@@ -14,6 +14,7 @@ import '../sync/gps_sync_coordinator.dart';
 import 'gps_add_moment_sheet.dart';
 import 'gps_journey_summary_view.dart';
 import 'gps_live_moments.dart';
+import 'gps_photo_capture.dart';
 import 'gps_recording_controls.dart';
 import 'gps_recording_error_view.dart';
 import 'gps_recording_header.dart';
@@ -48,6 +49,16 @@ final gpsRouteWaypointsProvider = StreamProvider.autoDispose
         (ref, args) {
   final db = ref.watch(gpsLocalDatabaseProvider);
   return db.watchWaypoints(
+      ownerId: args.ownerId, recordedRouteId: args.routeId);
+});
+
+/// Journey Phase 1H-C -- route-scoped, reactive persisted Journey media (Drift
+/// is the only source of truth; used for photo counts).
+final gpsRouteMediaProvider = StreamProvider.autoDispose
+    .family<List<LocalJourneyMediaItem>, ({String ownerId, String routeId})>(
+        (ref, args) {
+  final db = ref.watch(gpsLocalDatabaseProvider);
+  return db.watchJourneyMedia(
       ownerId: args.ownerId, recordedRouteId: args.routeId);
 });
 
@@ -158,6 +169,9 @@ class GpsRecordingMapBody extends ConsumerWidget {
     GpsSyncUiState? sync;
     var moments = const <LocalWaypoint>[];
     Stream<List<LocalWaypoint>>? momentsStream;
+    var media = const <LocalJourneyMediaItem>[];
+    Stream<List<LocalJourneyMediaItem>>? mediaStream;
+    final photoSource = ref.read(gpsPhotoSourceProvider);
     if (routeId != null) {
       final routeAsync = ref.watch(
         gpsRouteSyncStateProvider((ownerId: ownerId, routeId: routeId)),
@@ -174,6 +188,15 @@ class GpsRecordingMapBody extends ConsumerWidget {
                     (ownerId: ownerId, routeId: routeId)))
                 .value ??
             const <LocalWaypoint>[];
+        mediaStream = ref.read(gpsLocalDatabaseProvider).watchJourneyMedia(
+              ownerId: ownerId,
+              recordedRouteId: routeId,
+            );
+        media = ref
+                .watch(
+                    gpsRouteMediaProvider((ownerId: ownerId, routeId: routeId)))
+                .value ??
+            const <LocalJourneyMediaItem>[];
       }
     }
 
@@ -233,7 +256,15 @@ class GpsRecordingMapBody extends ConsumerWidget {
               ),
               child: SingleChildScrollView(
                 child: _buildContent(
-                    context, uiState, sync, moments, momentsStream),
+                  context,
+                  uiState,
+                  sync,
+                  moments,
+                  momentsStream,
+                  media,
+                  mediaStream,
+                  photoSource,
+                ),
               ),
             ),
           ),
@@ -248,6 +279,9 @@ class GpsRecordingMapBody extends ConsumerWidget {
     GpsSyncUiState? sync,
     List<LocalWaypoint> moments,
     Stream<List<LocalWaypoint>>? momentsStream,
+    List<LocalJourneyMediaItem> media,
+    Stream<List<LocalJourneyMediaItem>>? mediaStream,
+    GpsPhotoSource photoSource,
   ) {
     final routeId = state.routeId;
 
@@ -321,10 +355,22 @@ class GpsRecordingMapBody extends ConsumerWidget {
                 onFinish: () => _finish(context, controller.finish),
                 onAddWaypoint: () => _addMoment(context, controller),
                 momentCount: moments.length,
+                photoButton: GpsAddPhotoButton(
+                  source: photoSource,
+                  count: media.where((m) => m.waypointId == null).length,
+                  save: (bytes) => controller.addPhoto(sourceBytes: bytes),
+                ),
                 onViewMoments: () => showGpsMomentsSheet(
                   context,
                   moments: moments,
                   momentsStream: momentsStream,
+                  media: media,
+                  mediaStream: mediaStream,
+                  photoSource: photoSource,
+                  onAddPhoto: (moment, bytes) => controller.addPhoto(
+                    sourceBytes: bytes,
+                    waypointId: moment.id,
+                  ),
                   onEdit: (
                     moment, {
                     required waypointType,
@@ -373,7 +419,8 @@ class GpsRecordingMapBody extends ConsumerWidget {
             GpsRecoveryCard(
               pointCount: uiState.stats.pointCount,
               onResume: controller.resumeRecoverableRecording,
-              onFinish: () => _finish(context, controller.finishRecoverableRecording),
+              onFinish: () =>
+                  _finish(context, controller.finishRecoverableRecording),
               onDiscard: controller.discardRecoverableRecording,
             ),
           ],
