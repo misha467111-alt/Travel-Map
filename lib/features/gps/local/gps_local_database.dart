@@ -388,6 +388,39 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     return row == null ? null : _normalizeRoute(row);
   }
 
+  SimpleSelectStatement<$LocalRecordedRoutesTable, LocalRecordedRoute>
+      _completedRoutesQuery(String ownerId) {
+    return select(localRecordedRoutes)
+      ..where((t) =>
+          t.ownerId.equals(ownerId) &
+          t.status.equals(RecordedRouteStatus.completed))
+      ..orderBy([
+        // Newest completion first; `endedAt` is always set for a completed
+        // route, startedAt is only a defensive fallback. `id` is the
+        // deterministic tie-breaker for identical timestamps.
+        (t) => OrderingTerm(
+            expression: coalesce([t.endedAt, t.startedAt]),
+            mode: OrderingMode.desc),
+        (t) => OrderingTerm(expression: t.id),
+      ]);
+  }
+
+  /// Journey Phase 1F -- the canonical Journey History query: this owner's
+  /// `completed` routes only (never recording/paused/discarded), newest
+  /// completion first. Reactive, so a newly completed Journey or a changed
+  /// sync status appears without polling.
+  Stream<List<LocalRecordedRoute>> watchCompletedRoutes(String ownerId) {
+    return _completedRoutesQuery(ownerId)
+        .watch()
+        .map((rows) => rows.map(_normalizeRoute).toList(growable: false));
+  }
+
+  /// One-shot version of [watchCompletedRoutes].
+  Future<List<LocalRecordedRoute>> getCompletedRoutes(String ownerId) async {
+    final rows = await _completedRoutesQuery(ownerId).get();
+    return rows.map(_normalizeRoute).toList(growable: false);
+  }
+
   /// Generic, guarded status setter — enforces exactly the same
   /// allow-list the server's protect_recorded_route_system_fields
   /// trigger enforces. 'completed' is never a valid target here; only

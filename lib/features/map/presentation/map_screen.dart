@@ -35,6 +35,7 @@ import '../../navigation/presentation/scalable_locations_screen.dart';
 import 'create_location_screen.dart';
 import 'location_pick_screen.dart';
 import 'search_screen.dart';
+import '../../gps/presentation/gps_journey_history_screen.dart';
 import '../../gps/presentation/gps_recording_map_screen.dart';
 
 /// Shown after a successful [LocationsRepository.createLocation] call.
@@ -421,6 +422,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       builder: (_) => const GpsRecordingMapScreen(),
                     ),
                   ),
+                  onOpenHistory: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const GpsJourneyHistoryScreen(),
+                    ),
+                  ),
                 ),
                 overlays: [
                   const Positioned(
@@ -572,9 +578,14 @@ class MapQuickActions extends StatelessWidget {
     super.key,
     required this.onAdd,
     required this.onRecordRoute,
+    this.onOpenHistory,
   });
 
   final VoidCallback onAdd;
+
+  /// Journey Phase 1F: opens completed-Journey History. Offline-capable
+  /// (local data only); the action is hidden when no callback is given.
+  final VoidCallback? onOpenHistory;
 
   /// Phase 4D: opens the dedicated GPS recording mode
   /// ([GpsRecordingMapScreen]) -- the only Map entry point into GPS
@@ -597,6 +608,9 @@ class MapQuickActions extends StatelessWidget {
           _action(context, 'Записати маршрут', Icons.fiber_manual_record,
               onRecordRoute,
               buttonKey: const Key('gps_record_route_action')),
+          if (onOpenHistory != null)
+            _action(context, 'Історія подорожей', Icons.history, onOpenHistory!,
+                buttonKey: const Key('gps_journey_history_action')),
         ],
       );
 
