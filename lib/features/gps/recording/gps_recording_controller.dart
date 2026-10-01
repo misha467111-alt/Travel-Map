@@ -178,12 +178,13 @@ class GpsRecordingController with WidgetsBindingObserver {
     }
   }
 
-  Future<void> finishRecoverableRecording() async {
+  /// Returns whether the route was actually completed (see [finish]).
+  Future<bool> finishRecoverableRecording() async {
     if (_state.status != GpsRecordingStatus.recoverable ||
         _state.routeId == null) {
-      return;
+      return false;
     }
-    await _finishInternal(_state.routeId!);
+    return _finishInternal(_state.routeId!);
   }
 
   Future<void> discardRecoverableRecording() async {
@@ -355,7 +356,7 @@ class GpsRecordingController with WidgetsBindingObserver {
       debugPrint('gps: rejected 1 invalid sample');
       return;
     }
-    await _db.appendRoutePoint(
+    final appended = await _db.appendRoutePoint(
       ownerId: _ownerId,
       recordedRouteId: routeId,
       latitude: sample.latitude,
@@ -369,6 +370,12 @@ class GpsRecordingController with WidgetsBindingObserver {
       headingAccuracy: sample.headingAccuracy,
       recordedAt: sample.recordedAt,
     );
+    if (!appended) {
+      // The route completed before this in-flight write began; the
+      // database rejected it (completed routes are immutable).
+      debugPrint('gps: sample rejected, route already completed');
+      return;
+    }
     if (_state.routeId == routeId) {
       _emit(_state.copyWith(
           lastAccepted: sample, pointCount: _state.pointCount + 1));
@@ -436,27 +443,53 @@ class GpsRecordingController with WidgetsBindingObserver {
   // Finish / discard (tasks 11, 12)
   // ---------------------------------------------------------------------
 
-  Future<void> finish() async {
+  /// Returns `true` only if the route was completed locally. A duplicate
+  /// call while already `finishing`, or from any non-active status, is
+  /// rejected (`false`) without touching the database. If local
+  /// finalization throws, the previous status is restored (and the
+  /// position stream re-attached for a live recording) so the Journey
+  /// stays active/recoverable and no `completed` state is ever emitted.
+  Future<bool> finish() async {
     if (_state.status != GpsRecordingStatus.recording &&
         _state.status != GpsRecordingStatus.paused) {
-      return;
+      return false;
     }
-    if (_state.routeId == null) return;
-    await _finishInternal(_state.routeId!);
+    if (_state.routeId == null) return false;
+    return _finishInternal(_state.routeId!);
   }
 
-  Future<void> _finishInternal(String routeId) async {
+  Future<bool> _finishInternal(String routeId) async {
+    final previous = _state;
     _emit(_state.copyWith(status: GpsRecordingStatus.finishing));
     await _positionSub?.cancel();
     _positionSub = null;
-    await _db.finishRecordingLocally(
-      ownerId: _ownerId,
-      routeId: routeId,
-      occurredAt: DateTime.now().toUtc(),
-    );
+    try {
+      await _db.finishRecordingLocally(
+        ownerId: _ownerId,
+        routeId: routeId,
+        occurredAt: DateTime.now().toUtc(),
+      );
+    } catch (_) {
+      debugPrint('gps: finish failed locally, journey left active');
+      if (previous.status == GpsRecordingStatus.recording) {
+        _subscribeToPositionStream(routeId);
+      }
+      // Restore only the status: an in-flight sample accepted while
+      // `finishing` may already have advanced pointCount/lastAccepted.
+      _emit(_state.copyWith(status: previous.status));
+      return false;
+    }
     debugPrint(
         'gps: finished (completed locally; server finalize is future sync work)');
     _emit(_state.copyWith(status: GpsRecordingStatus.completed));
+    return true;
+  }
+
+  /// Leaves the post-finish Summary: only meaningful from `completed`,
+  /// where it returns the controller to `idle`. Persisted data is untouched.
+  void dismissCompleted() {
+    if (_state.status != GpsRecordingStatus.completed) return;
+    _emit(GpsRecordingState.idle);
   }
 
   Future<void> discard() async {

@@ -35,9 +35,13 @@ void main() {
 
     await tester.tap(find.byKey(const Key('gps_recording_pause_button')));
     await tester.tap(find.byKey(const Key('gps_recording_finish_button')));
+    await tester.pumpAndSettle();
+    expect(finishTaps, 0, reason: 'finish requires confirmation');
+    await tester.tap(find.byKey(const Key('gps_finish_confirm_button')));
+    await tester.pumpAndSettle();
     await tester
         .tap(find.byKey(const Key('gps_recording_add_waypoint_button')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(pauseTaps, 1);
     expect(finishTaps, 1);
     expect(waypointTaps, 1);

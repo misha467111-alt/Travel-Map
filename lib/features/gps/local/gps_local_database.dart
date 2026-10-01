@@ -539,7 +539,16 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   /// two near-simultaneous calls can never race onto the same seq. Every
   /// sample must be persistable independently of network state — this
   /// method never touches the network or sync cursor.
-  Future<void> appendRoutePoint({
+  ///
+  /// Journey Phase 1E: a completed route is immutable. The status check
+  /// runs inside the same transaction as the insert, and
+  /// [finishRecordingLocally] is a transaction on the same executor, so the
+  /// two serialize: a sample whose write begins after completion committed
+  /// is rejected here regardless of when the caller accepted it. Returns
+  /// `true` if the point was persisted, `false` if the route is completed.
+  /// Scoped by [ownerId] and [recordedRouteId]; an unknown route keeps the
+  /// pre-existing behavior (not rejected here).
+  Future<bool> appendRoutePoint({
     required String ownerId,
     required String recordedRouteId,
     required double latitude,
@@ -555,6 +564,11 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     String? provider,
   }) {
     return transaction(() async {
+      final route =
+          await getRecordedRoute(ownerId: ownerId, id: recordedRouteId);
+      if (route != null && route.status == RecordedRouteStatus.completed) {
+        return false;
+      }
       final seq = await _nextSeq(localRoutePoints, recordedRouteId);
       await into(localRoutePoints).insert(
         LocalRoutePointsCompanion.insert(
@@ -574,6 +588,7 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
           provider: Value(provider),
         ),
       );
+      return true;
     });
   }
 

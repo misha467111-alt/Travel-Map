@@ -29,7 +29,10 @@ void main() {
     expect(resumeTaps, 1);
 
     await tester.tap(find.byKey(const Key('gps_recovery_finish_button')));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(finishTaps, 0, reason: 'finish requires confirmation');
+    await tester.tap(find.byKey(const Key('gps_finish_confirm_button')));
+    await tester.pumpAndSettle();
     expect(finishTaps, 1);
 
     // Discard reuses the same shared confirmation dialog as active-session

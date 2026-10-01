@@ -470,6 +470,11 @@ void main() {
       await realAwait(tester, () async {
         await tester.tap(find.byKey(const Key('gps_recovery_finish_button')));
       });
+      await tester.pump();
+      await tester.pump();
+      await realAwait(tester, () async {
+        await tester.tap(find.byKey(const Key('gps_finish_confirm_button')));
+      });
       await waitUntil(tester,
           () async => controller.state.status == GpsRecordingStatus.completed);
 

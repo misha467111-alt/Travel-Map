@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_design.dart';
 import 'gps_discard_confirmation.dart';
+import 'gps_finish_confirmation.dart';
 import 'gps_live_moments.dart';
 import 'gps_recording_ui_state.dart';
 
@@ -42,6 +43,12 @@ class GpsRecordingControls extends StatelessWidget {
   /// Called at most once per confirmed tap -- only after the user
   /// explicitly confirms the discard dialog.
   final VoidCallback? onDiscard;
+
+  /// [onFinish] is only ever invoked after the user explicitly confirms.
+  Future<void> _handleFinish(BuildContext context) async {
+    final confirmed = await showGpsFinishConfirmation(context);
+    if (confirmed) onFinish?.call();
+  }
 
   Future<void> _handleDiscard(BuildContext context) async {
     final confirmed = await showGpsDiscardConfirmation(context);
@@ -85,7 +92,7 @@ class GpsRecordingControls extends StatelessWidget {
         if (uiState.canFinish)
           FilledButton.icon(
             key: const Key('gps_recording_finish_button'),
-            onPressed: onFinish,
+            onPressed: () => _handleFinish(context),
             icon: const Icon(Icons.check),
             label: const Text('Завершити'),
           ),

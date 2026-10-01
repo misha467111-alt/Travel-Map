@@ -17,6 +17,7 @@ import 'package:flutter_application_1/features/gps/sync/domain/gps_sync_reposito
 import 'package:flutter_application_1/features/gps/sync/gps_sync_coordinator.dart';
 import 'package:flutter_application_1/features/map/providers/map_provider.dart';
 
+import '../local/flaky_finish_db.dart';
 import '../location/fake_location_source.dart';
 import '../location/fake_notification_permission_source.dart';
 
@@ -829,9 +830,80 @@ void main() {
       await mountAndFlush(tester);
 
       expect(controller.state.status, GpsRecordingStatus.completed);
-      expect(momentMarkers(tester), isEmpty);
+      // Phase 1E: the completed Journey shows the Summary, not the live map.
+      expect(find.byKey(const Key('gps_recording_map')), findsNothing);
+      expect(find.byKey(const Key('gps_journey_summary')), findsOneWidget);
       expect(
           find.byKey(const Key('gps_moment_inspection_button')), findsNothing);
+      expect(find.byKey(const Key('gps_recording_add_waypoint_button')),
+          findsNothing);
+      await disposeCleanly(tester);
+    });
+  });
+
+  group('Journey Phase 1E finish failure feedback', () {
+    testWidgets(
+        'confirmed Finish with failing local finalization shows an error '
+        'and no Summary; the Journey stays active', (tester) async {
+      final fdb = FlakyFinishDb(NativeDatabase.memory());
+      final failSource = FakeLocationSource()
+        ..permission = LocationPermission.whileInUse;
+      final failController = GpsRecordingController(
+        ownerId: 'me',
+        db: fdb,
+        locationSource: failSource,
+        notificationPermissionSource: FakeNotificationPermissionSource(),
+      );
+      addTearDown(() async {
+        failController.dispose();
+        await TestWidgetsFlutterBinding.instance.runAsync(() => fdb.close());
+        await failSource.dispose();
+      });
+
+      await realAwait(tester, failController.start);
+      await settle(tester);
+      fdb.failFinish = true;
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          gpsLocalDatabaseProvider.overrideWithValue(fdb),
+          currentPositionProvider.overrideWith((ref) async => testPosition()),
+        ],
+        child: MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: GpsRecordingMapBody(
+              ownerId: 'me',
+              state: failController.state,
+              controller: failController,
+              syncCoordinator: syncCoordinator,
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('gps_recording_finish_button')));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Завершити подорож?'), findsOneWidget);
+      await realAwait(tester, () async {
+        await tester.tap(find.byKey(const Key('gps_finish_confirm_button')));
+      });
+      await waitUntil(tester, () async => fdb.finishCalls == 1);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(fdb.finishCalls, 1);
+      expect(find.text('Не вдалося завершити подорож. Спробуйте ще раз.'),
+          findsOneWidget);
+      expect(find.byKey(const Key('gps_journey_summary')), findsNothing);
+      expect(find.text('Подорож завершено'), findsNothing);
+      expect(failController.state.status, GpsRecordingStatus.recording);
+      final route = await tester.runAsync(() => fdb.getRecordedRoute(
+          ownerId: 'me', id: failController.state.routeId!));
+      expect(route!.status, RecordedRouteStatus.recording);
       await disposeCleanly(tester);
     });
   });

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_design.dart';
 import 'gps_discard_confirmation.dart';
+import 'gps_finish_confirmation.dart';
 
 /// Phase 4C — shown only when the engine reports
 /// `GpsRecordingStatus.recoverable` (an unfinished recording/paused
@@ -31,6 +32,11 @@ class GpsRecoveryCard extends StatelessWidget {
   /// Called at most once, only after the shared discard-confirmation
   /// dialog is explicitly confirmed.
   final VoidCallback onDiscard;
+
+  Future<void> _handleFinish(BuildContext context) async {
+    final confirmed = await showGpsFinishConfirmation(context);
+    if (confirmed) onFinish();
+  }
 
   Future<void> _handleDiscard(BuildContext context) async {
     final confirmed = await showGpsDiscardConfirmation(context);
@@ -81,7 +87,7 @@ class GpsRecoveryCard extends StatelessWidget {
                 ),
                 OutlinedButton.icon(
                   key: const Key('gps_recovery_finish_button'),
-                  onPressed: onFinish,
+                  onPressed: () => _handleFinish(context),
                   icon: const Icon(Icons.check),
                   label: const Text('Завершити'),
                 ),

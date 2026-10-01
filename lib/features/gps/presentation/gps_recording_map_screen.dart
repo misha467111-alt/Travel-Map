@@ -12,6 +12,7 @@ import '../recording/gps_recording_controller.dart';
 import '../recording/gps_recording_state.dart';
 import '../sync/gps_sync_coordinator.dart';
 import 'gps_add_moment_sheet.dart';
+import 'gps_journey_summary_view.dart';
 import 'gps_live_moments.dart';
 import 'gps_recording_controls.dart';
 import 'gps_recording_error_view.dart';
@@ -176,6 +177,25 @@ class GpsRecordingMapBody extends ConsumerWidget {
       }
     }
 
+    if (state.status == GpsRecordingStatus.completed && routeId != null) {
+      // Journey Phase 1E: post-finish Summary, from local persisted data.
+      // "Готово" returns the controller to idle and leaves this screen.
+      return ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: GpsJourneySummaryPanel(
+          key: const Key('gps_journey_summary'),
+          ownerId: ownerId,
+          routeId: routeId,
+          sync: sync,
+          onRetrySync: () => syncCoordinator.retryRoute(routeId),
+          onDone: () {
+            controller.dismissCompleted();
+            Navigator.of(context).maybePop();
+          },
+        ),
+      );
+    }
+
     return Stack(
       children: [
         _LiveTrackMap(
@@ -242,6 +262,12 @@ class GpsRecordingMapBody extends ConsumerWidget {
         );
 
       case GpsRecordingStatus.completed:
+        if (routeId != null) {
+          // Journey Phase 1E: the Summary is rendered full-screen by
+          // [build] (see `showSummary`); this branch is never reached for
+          // a completed Journey with a route id.
+          return const SizedBox.shrink();
+        }
         return _OverlayPanel(
           child: GpsStartView(
             key: const Key('gps_start_view'),
@@ -292,7 +318,7 @@ class GpsRecordingMapBody extends ConsumerWidget {
                 uiState: uiState,
                 onPause: controller.pause,
                 onResume: controller.resume,
-                onFinish: controller.finish,
+                onFinish: () => _finish(context, controller.finish),
                 onAddWaypoint: () => _addMoment(context, controller),
                 momentCount: moments.length,
                 onViewMoments: () => showGpsMomentsSheet(
@@ -347,7 +373,7 @@ class GpsRecordingMapBody extends ConsumerWidget {
             GpsRecoveryCard(
               pointCount: uiState.stats.pointCount,
               onResume: controller.resumeRecoverableRecording,
-              onFinish: controller.finishRecoverableRecording,
+              onFinish: () => _finish(context, controller.finishRecoverableRecording),
               onDiscard: controller.discardRecoverableRecording,
             ),
           ],
@@ -363,6 +389,24 @@ class GpsRecordingMapBody extends ConsumerWidget {
             onRetry: controller.start,
           ),
         );
+    }
+  }
+
+  /// Journey Phase 1E -- runs a confirmed finish; if local finalization
+  /// failed the Journey stays active and the user is told, never shown a
+  /// success Summary.
+  Future<void> _finish(
+    BuildContext context,
+    Future<bool> Function() finish,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final finished = await finish();
+    if (!finished) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Не вдалося завершити подорож. Спробуйте ще раз.'),
+        ),
+      );
     }
   }
 
