@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'gps_journey_details_screen.dart';
 import 'gps_journey_history_view.dart';
 
 /// Journey Phase 1F -- thin auth-gated wrapper (same shape as
@@ -18,7 +19,14 @@ class GpsJourneyHistoryScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Історія подорожей')),
       body: userId == null
           ? const Center(child: Text('Потрібно увійти в акаунт.'))
-          : GpsJourneyHistoryBody(ownerId: userId),
+          : GpsJourneyHistoryBody(
+              ownerId: userId,
+              onOpenJourney: (routeId) => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => GpsJourneyDetailsScreen(routeId: routeId),
+                ),
+              ),
+            ),
     );
   }
 }
