@@ -1,11 +1,22 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 import 'package:flutter_application_1/features/gps/local/gps_local_database.dart';
+import 'package:flutter_application_1/features/gps/media/journey_media_storage.dart';
+import 'package:flutter_application_1/features/gps/sync/data/supabase_journey_media_sync_repository.dart';
 import 'package:flutter_application_1/features/gps/sync/domain/gps_sync_repository.dart';
+import 'package:flutter_application_1/features/gps/sync/domain/journey_media_sync_repository.dart';
 import 'package:flutter_application_1/features/gps/sync/gps_sync_coordinator.dart';
+import 'package:flutter_application_1/features/gps/sync/journey_media_sync.dart';
+import 'package:flutter_application_1/features/map/providers/network_provider.dart';
+
+import 'fake_journey_media_remote.dart';
 
 /// Hand-rolled fake, matching this codebase's established
 /// `CheckInRepository`/`_RecordingCheckInRepository` convention (no
@@ -1010,6 +1021,605 @@ void main() {
   });
 
   // -------------------------------------------------------------------
+  // Journey Phase 1H-E2B -- the media phase inside the serialized pass
+  // (C01-C10). Media ids/owner are canonical lowercase UUIDs, as in
+  // production.
+  // -------------------------------------------------------------------
+
+  group('Journey media phase', () {
+    const owner = '00000000-0000-4000-8000-000000000900';
+    String uuid(int n) =>
+        '00000000-0000-4000-8000-${n.toString().padLeft(12, '0')}';
+    final t0 = DateTime.utc(2026, 3, 1, 9);
+    final jpeg = Uint8List.fromList(img.encodeJpg(img
+        .fill(img.Image(width: 8, height: 8), color: img.ColorRgb8(9, 9, 9))));
+
+    late Directory root;
+    late JourneyMediaStorage storage;
+    late FakeJourneyMediaRemote remote;
+    late List<String> log; // route-repo + media calls, interleaved
+    String? live;
+    late DateTime now;
+
+    setUp(() async {
+      live = owner;
+      now = DateTime.utc(2026, 3, 2, 12);
+      root = await Directory.systemTemp.createTemp('coordinator_media_test_');
+      storage = JourneyMediaStorage(rootDirectory: () async => root);
+      remote = FakeJourneyMediaRemote(liveUid: () => live);
+      log = [];
+      remote.onCall = (op) => log.add('media:$op');
+    });
+
+    tearDown(() async {
+      if (root.existsSync()) await root.delete(recursive: true);
+    });
+
+    JourneyMediaSync newMediaSync() =>
+        JourneyMediaSync(db: db, storage: storage, repository: remote);
+
+    GpsSyncCoordinator mediaCoordinator({
+      bool withMedia = true,
+      Stream<NetworkStatus>? online,
+      JourneyMediaSync? sync,
+    }) =>
+        GpsSyncCoordinator(
+          ownerId: owner,
+          db: db,
+          repository: repo,
+          currentUserId: () => live,
+          autoSyncOnInit: false,
+          mediaSync: withMedia ? (sync ?? newMediaSync()) : null,
+          clock: () => now,
+          onlineStatusStream: online,
+        );
+
+    /// A locally completed Journey with [photos] pending standalone photos,
+    /// whose route sync is [routeSync].
+    Future<List<LocalJourneyMediaItem>> journey(
+      String routeId, {
+      int photos = 1,
+      int firstMedia = 100,
+      String routeSync = RouteSyncStatus.notSynced,
+    }) async {
+      await db.createLocalRecordedRoute(
+          id: routeId, ownerId: owner, startedAt: t0);
+      final items = <LocalJourneyMediaItem>[];
+      for (var i = 0; i < photos; i++) {
+        final id = uuid(firstMedia + i);
+        final path = JourneyMediaStorage.relativePathFor(
+            recordedRouteId: routeId, mediaId: id);
+        await storage.writeNew(path, jpeg);
+        items.add(await db.insertJourneyMedia(
+          id: id,
+          ownerId: owner,
+          recordedRouteId: routeId,
+          capturedAt: t0.add(Duration(seconds: i)),
+          latitude: 50.45,
+          longitude: 30.52,
+          localRelativePath: path,
+        ));
+      }
+      await db.finishRecordingLocally(
+          ownerId: owner, routeId: routeId, occurredAt: t0);
+      await db.recordRouteSyncOutcome(
+          ownerId: owner, routeId: routeId, syncStatus: routeSync);
+      return items;
+    }
+
+    Future<String?> status(LocalJourneyMediaItem item) async =>
+        (await db.getJourneyMediaItem(
+                ownerId: owner,
+                recordedRouteId: item.recordedRouteId,
+                id: item.id))
+            ?.syncStatus;
+
+    const indeterminate = JourneyMediaSyncException(
+        JourneyMediaRemoteFailureKind.indeterminate, 'scripted');
+
+    test('C01 the media phase runs after remote finalize in the same pass',
+        () async {
+      final items = await journey(uuid(1));
+      final coordinator = mediaCoordinator();
+      repo.calls.clear();
+
+      await coordinator.syncNow();
+
+      final route = await db.getRecordedRoute(ownerId: owner, id: uuid(1));
+      expect(route!.syncStatus, RouteSyncStatus.synced);
+      expect(repo.calls.last, 'finalizeRoute');
+      expect(log, ['media:upload', 'media:insert']);
+      expect(await status(items.single), JourneyMediaSyncStatus.synced);
+      coordinator.dispose();
+    });
+
+    test(
+        'C02 a media failure never changes route sync and never re-runs '
+        'finalize', () async {
+      final items = await journey(uuid(1));
+      remote.failBefore = (op) => op == 'upload' ? indeterminate : null;
+      final coordinator = mediaCoordinator();
+
+      await coordinator.syncNow();
+      now = now.add(const Duration(hours: 1)); // past any backoff
+      await coordinator.syncNow();
+
+      final route = await db.getRecordedRoute(ownerId: owner, id: uuid(1));
+      expect(route!.syncStatus, RouteSyncStatus.synced);
+      expect(repo.finalizeCalls, hasLength(1));
+      expect(log.where((c) => c == 'media:upload'), hasLength(2));
+      expect(await status(items.single), JourneyMediaSyncStatus.pending);
+      coordinator.dispose();
+    });
+
+    test(
+        'C03 an already-synced Journey with pending media is found again by '
+        'the actionable query (no route re-sync)', () async {
+      final items = await journey(uuid(1), routeSync: RouteSyncStatus.synced);
+      final coordinator = mediaCoordinator();
+      repo.calls.clear();
+
+      await coordinator.syncNow();
+
+      expect(repo.calls, isEmpty, reason: 'the route itself is not revisited');
+      expect(await status(items.single), JourneyMediaSyncStatus.synced);
+      coordinator.dispose();
+    });
+
+    test(
+        'C04 retryRoute requeues only that route\'s failed media; syncNow '
+        'never does', () async {
+      final a = await journey(uuid(1),
+          firstMedia: 100, routeSync: RouteSyncStatus.synced);
+      final b = await journey(uuid(2),
+          firstMedia: 200, routeSync: RouteSyncStatus.synced);
+      for (final item in [...a, ...b]) {
+        await db.markJourneyMediaFailed(
+            ownerId: owner, recordedRouteId: item.recordedRouteId, id: item.id);
+      }
+      final coordinator = mediaCoordinator();
+
+      await coordinator.syncNow();
+      expect(log, isEmpty);
+
+      await coordinator.retryRoute(uuid(1));
+      expect(await status(a.single), JourneyMediaSyncStatus.synced);
+      expect(await status(b.single), JourneyMediaSyncStatus.failed);
+      expect(remote.objects.keys.single, contains(uuid(1)));
+      coordinator.dispose();
+    });
+
+    test(
+        'C05 concurrent triggers run strictly one pass at a time and upload '
+        'each photo exactly once', () async {
+      final items =
+          await journey(uuid(1), photos: 4, routeSync: RouteSyncStatus.synced);
+      final release = Completer<void>();
+      var first = true;
+      remote.gate = (op) async {
+        if (first) {
+          first = false;
+          await release.future;
+        }
+      };
+      final coordinator = mediaCoordinator();
+
+      final passes = [
+        coordinator.syncNow(),
+        coordinator.syncNow(),
+        coordinator.retryRoute(uuid(1)),
+        coordinator.syncNow(),
+      ];
+      await pumpEventQueue();
+      release.complete();
+      await Future.wait(passes);
+
+      expect(remote.maxInFlight, 1);
+      expect(remote.objectWrites, 4);
+      expect(log.where((c) => c == 'media:upload'), hasLength(4));
+      for (final item in items) {
+        expect(await status(item), JourneyMediaSyncStatus.synced);
+      }
+      coordinator.dispose();
+    });
+
+    test(
+        'C06 a queued pass makes the media phase yield after the current '
+        'photo; the queued pass continues the work', () async {
+      final items =
+          await journey(uuid(1), photos: 2, routeSync: RouteSyncStatus.synced);
+      final coordinator = mediaCoordinator();
+      Future<void>? queued;
+      remote.onCall = (op) {
+        log.add('media:$op');
+        if (op == 'upload' && queued == null) queued = coordinator.syncNow();
+      };
+
+      await coordinator.syncNow();
+      expect(await status(items[0]), JourneyMediaSyncStatus.synced);
+      expect(await status(items[1]), JourneyMediaSyncStatus.pending,
+          reason: 'yielded after the current photo');
+
+      await queued;
+      expect(await status(items[1]), JourneyMediaSyncStatus.synced);
+      coordinator.dispose();
+    });
+
+    test(
+        'C07 media backoff: automatic triggers wait (route sync does not); '
+        'reconnect and retryRoute bypass; only a clean unrestricted phase '
+        'that settled an item resets it', () async {
+      final items = await journey(uuid(1), routeSync: RouteSyncStatus.synced);
+      remote.failBefore = (op) => op == 'upload' ? indeterminate : null;
+      final online = StreamController<NetworkStatus>.broadcast();
+      final coordinator = mediaCoordinator(online: online.stream);
+      final start = now;
+
+      await coordinator.syncNow();
+      expect(coordinator.mediaBackoffUntil,
+          start.add(const Duration(seconds: 30)));
+      expect(log, hasLength(1));
+
+      // Inside the window: media skipped, route sync still runs.
+      await journey(uuid(2), photos: 0);
+      now = start.add(const Duration(seconds: 10));
+      repo.calls.clear();
+      await coordinator.syncNow();
+      expect(log, hasLength(1));
+      expect(repo.calls, contains('finalizeRoute'));
+
+      // After the window: retried, fails again, the window doubles.
+      now = start.add(const Duration(seconds: 31));
+      await coordinator.syncNow();
+      expect(log, hasLength(2));
+      expect(
+          coordinator.mediaBackoffUntil, now.add(const Duration(seconds: 60)));
+
+      // Reconnect bypasses the window.
+      online
+        ..add(NetworkStatus.offline)
+        ..add(NetworkStatus.online);
+      await pumpEventQueue();
+      await coordinator.pendingSync;
+      expect(log, hasLength(3));
+
+      // An explicit retry bypasses it too -- but a single-route retry never
+      // clears the backoff (P3-1): it did not re-attempt everything.
+      remote.failBefore = null;
+      final window = coordinator.mediaBackoffUntil;
+      await coordinator.retryRoute(uuid(1));
+      expect(await status(items.single), JourneyMediaSyncStatus.synced);
+      expect(coordinator.mediaBackoffUntil, window);
+
+      // A clean, unrestricted phase that settled an item clears it.
+      final next = await journey(uuid(3),
+          firstMedia: 300, routeSync: RouteSyncStatus.synced);
+      now = window!.add(const Duration(seconds: 1));
+      await coordinator.syncNow();
+      expect(await status(next.single), JourneyMediaSyncStatus.synced);
+      expect(coordinator.mediaBackoffUntil, isNull);
+
+      // The cap: repeated failures never exceed 15 minutes.
+      final capped = await journey(uuid(4),
+          firstMedia: 400, routeSync: RouteSyncStatus.synced);
+      remote.failBefore = (op) => op == 'upload' ? indeterminate : null;
+      for (var i = 0; i < 8; i++) {
+        now = now.add(const Duration(hours: 1));
+        await coordinator.syncNow();
+      }
+      expect(
+          coordinator.mediaBackoffUntil, now.add(const Duration(minutes: 15)));
+      expect(await status(capped.single), JourneyMediaSyncStatus.pending);
+      await online.close();
+      coordinator.dispose();
+    });
+
+    test(
+        'C08 two coordinators racing on the same photo converge: synced, one '
+        'object, one row', () async {
+      final items = await journey(uuid(1), routeSync: RouteSyncStatus.synced);
+      // Hold the first upload until the second coordinator's upload has
+      // started, so both genuinely race on the same object and row.
+      final bothUploading = Completer<void>();
+      var uploads = 0;
+      remote.onCall = (op) {
+        log.add('media:$op');
+        if (op == 'upload' && ++uploads == 2) bothUploading.complete();
+      };
+      remote.gate =
+          (op) => op == 'upload' ? bothUploading.future : Future<void>.value();
+      final first = mediaCoordinator();
+      final second = mediaCoordinator();
+
+      await Future.wait([first.syncNow(), second.syncNow()]);
+
+      expect(await status(items.single), JourneyMediaSyncStatus.synced);
+      expect(remote.objectWrites, 1);
+      expect(remote.rows, hasLength(1));
+      expect(remote.insertedPayloads, hasLength(1));
+      // The loser converged through the duplicate proofs, not by luck.
+      expect(log.where((c) => c == 'media:upload'), hasLength(2));
+      expect(log, contains('media:download'),
+          reason: 'object duplicate -> byte comparison');
+      expect(log.where((c) => c == 'media:insert'), hasLength(2));
+      expect(log, contains('media:select'),
+          reason: 'row duplicate -> authenticated read-back');
+      first.dispose();
+      second.dispose();
+    });
+
+    test(
+        'C11 P2-1 a stalled upload times out: the pass ends, the photo stays '
+        'pending, backoff starts, and a later pass can finalize a route',
+        () async {
+      final items = await journey(uuid(1), routeSync: RouteSyncStatus.synced);
+      remote.gate = (op) =>
+          op == 'upload' ? Completer<void>().future : Future<void>.value();
+      final coordinator = mediaCoordinator(
+          sync: JourneyMediaSync(
+              db: db,
+              storage: storage,
+              repository: remote,
+              timeouts: const JourneyMediaTimeouts(upload: Duration.zero)));
+
+      await coordinator.syncNow(); // completes despite the stalled upload
+      expect(await status(items.single), JourneyMediaSyncStatus.pending);
+      expect(
+          coordinator.mediaBackoffUntil, now.add(const Duration(seconds: 30)));
+
+      await journey(uuid(2), photos: 0);
+      repo.calls.clear();
+      await coordinator.syncNow();
+      expect(repo.finalizeCalls.last, uuid(2));
+      expect(
+          (await db.getRecordedRoute(ownerId: owner, id: uuid(2)))!.syncStatus,
+          RouteSyncStatus.synced);
+      coordinator.dispose();
+    });
+
+    test(
+        'C12 P2-3 a 42501 (real classifier) never parks the photo; it backs '
+        'off and recovers automatically', () async {
+      final items = await journey(uuid(1), routeSync: RouteSyncStatus.synced);
+      var first = true;
+      remote.failBefore = (op) {
+        if (op != 'insert' || !first) return null;
+        first = false;
+        return SupabaseJourneyMediaSyncRepository.classify(
+            const PostgrestException(message: 'denied', code: '42501'));
+      };
+      final coordinator = mediaCoordinator();
+
+      await coordinator.syncNow();
+      expect(await status(items.single), JourneyMediaSyncStatus.pending);
+      final window = coordinator.mediaBackoffUntil;
+      expect(window, now.add(const Duration(seconds: 30)));
+
+      now = window!.add(const Duration(seconds: 1));
+      await coordinator.syncNow();
+      expect(await status(items.single), JourneyMediaSyncStatus.synced);
+      expect(coordinator.mediaBackoffUntil, isNull);
+      coordinator.dispose();
+    });
+
+    for (final (label, end) in [
+      ('completes', RecordedRouteStatus.completed),
+      ('is discarded', RecordedRouteStatus.discarded),
+    ]) {
+      test(
+          'C13 P2-4 no media calls while another Journey records or is '
+          'paused (no backoff); the old photo uploads once it $label',
+          () async {
+        final old = await journey(uuid(1), routeSync: RouteSyncStatus.synced);
+        final coordinator = mediaCoordinator();
+        await db.createLocalRecordedRoute(
+            id: uuid(9), ownerId: owner, startedAt: t0);
+
+        await coordinator.syncNow();
+        expect(log, isEmpty);
+        expect(coordinator.mediaBackoffUntil, isNull);
+        expect(repo.shellRouteIds, contains(uuid(9)),
+            reason: 'route sync of the active Journey is unaffected');
+
+        await db.pauseRecording(
+            ownerId: owner, routeId: uuid(9), occurredAt: t0);
+        await coordinator.syncNow();
+        expect(log, isEmpty);
+        expect(await status(old.single), JourneyMediaSyncStatus.pending);
+
+        if (end == RecordedRouteStatus.completed) {
+          await db.finishRecordingLocally(
+              ownerId: owner, routeId: uuid(9), occurredAt: t0);
+        } else {
+          await db.discardRecording(
+              ownerId: owner, routeId: uuid(9), occurredAt: t0);
+        }
+        await coordinator.syncNow();
+        expect(await status(old.single), JourneyMediaSyncStatus.synced);
+        coordinator.dispose();
+      });
+    }
+
+    test(
+        'C14 P3-1 backoff isolation: an unrelated single-route retry, a '
+        'yielded phase and a capped phase never clear an active backoff',
+        () async {
+      final items =
+          await journey(uuid(1), photos: 2, routeSync: RouteSyncStatus.synced);
+      await journey(uuid(2), photos: 0, routeSync: RouteSyncStatus.synced);
+      remote.failBefore = (op) => op == 'upload' ? indeterminate : null;
+      final online = StreamController<NetworkStatus>.broadcast();
+      final coordinator = mediaCoordinator(online: online.stream);
+
+      await coordinator.syncNow();
+      final window = coordinator.mediaBackoffUntil;
+      expect(window, isNotNull);
+      remote.failBefore = null;
+
+      // (a) A retry of a route with no eligible media: unchanged.
+      await coordinator.retryRoute(uuid(2));
+      expect(coordinator.mediaBackoffUntil, window);
+
+      // (b) A bypassing, unrestricted phase that yields after one photo:
+      // the other (previously failed) photo was not re-attempted.
+      Future<void>? queued;
+      remote.onCall = (op) {
+        log.add('media:$op');
+        if (op == 'upload' && queued == null) queued = coordinator.syncNow();
+      };
+      online
+        ..add(NetworkStatus.offline)
+        ..add(NetworkStatus.online);
+      await pumpEventQueue();
+      await coordinator.pendingSync;
+      await queued;
+      expect(await status(items[0]), JourneyMediaSyncStatus.synced);
+      expect(await status(items[1]), JourneyMediaSyncStatus.pending);
+      expect(coordinator.mediaBackoffUntil, window);
+      await online.close();
+      coordinator.dispose();
+
+      // (c) A bypassing, unrestricted phase stopped by the cap (cap 1) with
+      // photos left: unchanged.
+      remote.onCall = (op) => log.add('media:$op');
+      final more = await journey(uuid(3),
+          photos: 2, firstMedia: 300, routeSync: RouteSyncStatus.synced);
+      final reconnect = StreamController<NetworkStatus>.broadcast();
+      final cappedCoordinator = mediaCoordinator(
+          online: reconnect.stream,
+          sync: JourneyMediaSync(
+              db: db,
+              storage: storage,
+              repository: remote,
+              maxItemsPerPass: 1));
+      remote.failBefore = (op) => op == 'upload' ? indeterminate : null;
+      await cappedCoordinator.syncNow(); // items[1] fails -> backoff
+      final cappedWindow = cappedCoordinator.mediaBackoffUntil;
+      expect(cappedWindow, isNotNull);
+      remote.failBefore = null;
+      reconnect
+        ..add(NetworkStatus.offline)
+        ..add(NetworkStatus.online);
+      await pumpEventQueue();
+      await cappedCoordinator.pendingSync;
+      expect(await status(items[1]), JourneyMediaSyncStatus.synced);
+      expect(await status(more[0]), JourneyMediaSyncStatus.pending,
+          reason: 'the cap stopped the phase');
+      expect(cappedCoordinator.mediaBackoffUntil, cappedWindow);
+      await reconnect.close();
+      cappedCoordinator.dispose();
+    });
+
+    test('C09 without a media helper, route sync behaves exactly as before',
+        () async {
+      final items = await journey(uuid(1));
+      await db.markJourneyMediaFailed(
+          ownerId: owner,
+          recordedRouteId: items.single.recordedRouteId,
+          id: items.single.id);
+      final coordinator = mediaCoordinator(withMedia: false);
+
+      await coordinator.syncNow();
+      await coordinator.retryRoute(uuid(1));
+
+      final route = await db.getRecordedRoute(ownerId: owner, id: uuid(1));
+      expect(route!.syncStatus, RouteSyncStatus.synced);
+      expect(log, isEmpty);
+      expect(await status(items.single), JourneyMediaSyncStatus.failed,
+          reason: 'no requeue without a media phase');
+      coordinator.dispose();
+    });
+
+    test(
+        'C15 P2-2 a Journey starting mid-pass defers the remaining photos '
+        'WITHOUT touching backoff; route sync continues; they upload after '
+        'it ends', () async {
+      final items =
+          await journey(uuid(1), photos: 2, routeSync: RouteSyncStatus.synced);
+      var started = false;
+      remote.gate = (op) async {
+        if (op == 'insert' && !started) {
+          started = true; // the user starts a new Journey during photo A
+          await db.createLocalRecordedRoute(
+              id: uuid(9), ownerId: owner, startedAt: t0);
+        }
+      };
+      final coordinator = mediaCoordinator();
+
+      await coordinator.syncNow();
+      expect(await status(items[0]), JourneyMediaSyncStatus.synced,
+          reason: 'the photo already in flight finished');
+      expect(await status(items[1]), JourneyMediaSyncStatus.pending);
+      expect(log.where((c) => c == 'media:upload'), hasLength(1));
+      expect(coordinator.mediaBackoffUntil, isNull,
+          reason: 'a recording is not an error');
+
+      // Ordinary route sync of the active Journey continues; media does not.
+      repo.calls.clear();
+      await coordinator.syncNow();
+      expect(repo.shellRouteIds, contains(uuid(9)));
+      expect(log.where((c) => c == 'media:upload'), hasLength(1));
+      expect(coordinator.mediaBackoffUntil, isNull);
+
+      await db.discardRecording(
+          ownerId: owner, routeId: uuid(9), occurredAt: t0);
+      await coordinator.syncNow();
+      expect(await status(items[1]), JourneyMediaSyncStatus.synced);
+      coordinator.dispose();
+    });
+
+    test(
+        'C15b P2-2 a deferral never changes an ACTIVE backoff (neither '
+        'clears nor extends it)', () async {
+      final items = await journey(uuid(1), routeSync: RouteSyncStatus.synced);
+      remote.failBefore = (op) => op == 'upload' ? indeterminate : null;
+      final coordinator = mediaCoordinator();
+      await coordinator.syncNow();
+      final window = coordinator.mediaBackoffUntil;
+      expect(window, now.add(const Duration(seconds: 30)));
+
+      remote.failBefore = null;
+      await db.createLocalRecordedRoute(
+          id: uuid(9), ownerId: owner, startedAt: t0);
+      now = window!.add(const Duration(minutes: 5)); // window long expired
+      await coordinator.syncNow();
+
+      expect(coordinator.mediaBackoffUntil, window);
+      expect(await status(items.single), JourneyMediaSyncStatus.pending);
+      expect(log.where((c) => c == 'media:upload'), hasLength(1),
+          reason: 'only the first, failed attempt');
+      coordinator.dispose();
+    });
+
+    test(
+        'C10 the media sync sources add no timer, polling, GPS/location or '
+        'connectivity dependency', () {
+      for (final path in [
+        'lib/features/gps/sync/journey_media_sync.dart',
+        'lib/features/gps/sync/domain/journey_media_sync_repository.dart',
+        'lib/features/gps/sync/data/supabase_journey_media_sync_repository.dart',
+        'lib/features/gps/sync/gps_sync_coordinator.dart',
+      ]) {
+        final source = File(path).readAsStringSync();
+        for (final banned in [
+          'Timer(',
+          'Timer.periodic',
+          'Stream.periodic',
+          'geolocator',
+          'getPositionStream',
+          'location_source',
+          'connectivity_plus',
+          'Workmanager',
+          'BackgroundFetch',
+        ]) {
+          expect(source.contains(banned), isFalse,
+              reason: '$path contains $banned');
+        }
+      }
+    });
+  });
+
+  // -------------------------------------------------------------------
   // 36-38 -- static source scans: no Activity Events / XP / invite wiring
   // anywhere in the GPS sync feature, mirroring this repo's existing
   // Node/SQL static-contract-test convention.
@@ -1020,6 +1630,10 @@ void main() {
       'lib/features/gps/sync/gps_sync_coordinator.dart',
       'lib/features/gps/sync/domain/gps_sync_repository.dart',
       'lib/features/gps/sync/data/supabase_gps_sync_repository.dart',
+      // Journey Phase 1H-E2B media sync sources (C10).
+      'lib/features/gps/sync/journey_media_sync.dart',
+      'lib/features/gps/sync/domain/journey_media_sync_repository.dart',
+      'lib/features/gps/sync/data/supabase_journey_media_sync_repository.dart',
     ].map((path) => File(path).readAsStringSync()).join('\n');
 
     test('36 no Activity Event call anywhere in the GPS sync feature', () {

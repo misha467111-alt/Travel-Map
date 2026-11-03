@@ -7,10 +7,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../map/providers/network_provider.dart';
 import '../local/gps_local_database.dart';
 import '../local/gps_local_database_provider.dart';
+import '../media/journey_media_storage.dart';
 import '../recording/gps_recording_controller.dart';
 import '../recording/gps_recording_state.dart';
 import 'data/supabase_gps_sync_repository.dart';
+import 'data/supabase_journey_media_sync_repository.dart';
 import 'domain/gps_sync_repository.dart';
+import 'domain/journey_media_sync_repository.dart';
+import 'journey_media_sync.dart';
 
 /// Drives one account's local-Drift -> Supabase GPS sync: route shell,
 /// point/event batches, waypoints, and finalization, entirely on top of
@@ -46,13 +50,17 @@ class GpsSyncCoordinator with WidgetsBindingObserver {
     int pointBatchSize = 500,
     int eventBatchSize = 500,
     bool autoSyncOnInit = true,
+    JourneyMediaSync? mediaSync,
+    DateTime Function()? clock,
   })  : _ownerId = ownerId,
         _db = db,
         _repository = repository,
         _currentUserId = currentUserId ??
             (() => Supabase.instance.client.auth.currentUser?.id),
         _pointBatchSize = pointBatchSize,
-        _eventBatchSize = eventBatchSize {
+        _eventBatchSize = eventBatchSize,
+        _mediaSync = mediaSync,
+        _clock = clock ?? (() => DateTime.now().toUtc()) {
     WidgetsBinding.instance.addObserver(this);
     _onlineSub = onlineStatusStream?.listen(_onNetworkStatus);
     _recordingStateSub = recordingStateStream?.listen(_onRecordingState);
@@ -69,6 +77,29 @@ class GpsSyncCoordinator with WidgetsBindingObserver {
   final String? Function() _currentUserId;
   final int _pointBatchSize;
   final int _eventBatchSize;
+
+  /// Journey Phase 1H-E2B -- optional media phase, run at the end of every
+  /// pass. `null` means no media sync (route sync behaves exactly as before).
+  final JourneyMediaSync? _mediaSync;
+  final DateTime Function() _clock;
+
+  /// Passes enqueued but not yet started. The media phase yields after its
+  /// current photo when this is non-zero, so a queued pass (e.g. a fresh
+  /// route finalize) never waits behind uploads.
+  int _queuedPasses = 0;
+
+  /// In-memory media backoff after an INDETERMINATE media outcome: 30 s,
+  /// doubling, capped at 15 min. No timer exists -- automatic triggers just
+  /// skip the media phase while [_mediaBackoffUntil] is in the future.
+  /// Cleared only by a clean, unrestricted phase that settled at least one
+  /// item (see [_runMediaPhase]), and by process restart.
+  static const _mediaBackoffBase = Duration(seconds: 30);
+  static const _mediaBackoffMax = Duration(minutes: 15);
+  DateTime? _mediaBackoffUntil;
+  int _mediaBackoffStep = 0;
+
+  @visibleForTesting
+  DateTime? get mediaBackoffUntil => _mediaBackoffUntil;
 
   StreamSubscription<NetworkStatus>? _onlineSub;
   StreamSubscription<GpsRecordingState>? _recordingStateSub;
@@ -100,7 +131,8 @@ class GpsSyncCoordinator with WidgetsBindingObserver {
     final previous = _lastNetworkStatus;
     _lastNetworkStatus = status;
     if (previous == NetworkStatus.offline && status == NetworkStatus.online) {
-      unawaited(syncNow());
+      // Connectivity regained is new information: bypass the media backoff.
+      unawaited(syncNow(bypassMediaBackoff: true));
     }
   }
 
@@ -122,7 +154,11 @@ class GpsSyncCoordinator with WidgetsBindingObserver {
   /// locally-eligible route (see
   /// [GpsLocalDatabase.getRoutesNeedingAutoSync] — never a `failed`
   /// route; those require [retryRoute]).
-  Future<void> syncNow() {
+  ///
+  /// Journey Phase 1H-E2B: then runs the media phase for completed, synced
+  /// routes with pending media (subject to the media backoff unless
+  /// [bypassMediaBackoff]).
+  Future<void> syncNow({bool bypassMediaBackoff = false}) {
     return _serialized(() async {
       if (_disposed) return;
       await _db.normalizeStaleSyncingRoutes(ownerId: _ownerId);
@@ -131,6 +167,7 @@ class GpsSyncCoordinator with WidgetsBindingObserver {
         if (_disposed) return;
         await _syncRoute(route);
       }
+      await _runMediaPhase(bypassBackoff: bypassMediaBackoff);
     });
   }
 
@@ -139,17 +176,79 @@ class GpsSyncCoordinator with WidgetsBindingObserver {
   /// previously-terminal route can be attempted again, matching "do not
   /// loop infinitely" for automatic passes while still allowing a real
   /// user retry action.
+  ///
+  /// Journey Phase 1H-E2B: also returns this route's `failed` media to
+  /// `pending` and runs the media phase for this route only, bypassing the
+  /// media backoff (an explicit user action).
   Future<void> retryRoute(String routeId) {
     return _serialized(() async {
       if (_disposed) return;
       final route = await _db.getRecordedRoute(ownerId: _ownerId, id: routeId);
       if (route == null) return;
       await _syncRoute(route);
+      if (_mediaSync != null && !_disposed) {
+        await _db.requeueFailedJourneyMedia(
+            ownerId: _ownerId, recordedRouteId: routeId);
+        await _runMediaPhase(bypassBackoff: true, routeIds: [routeId]);
+      }
     });
   }
 
+  Future<void> _runMediaPhase({
+    required bool bypassBackoff,
+    List<String>? routeIds,
+  }) async {
+    final media = _mediaSync;
+    if (media == null || _disposed) return;
+    final until = _mediaBackoffUntil;
+    if (!bypassBackoff && until != null && _clock().isBefore(until)) return;
+
+    JourneyMediaPhaseResult result;
+    try {
+      result = await media.runPhase(
+        ownerId: _ownerId,
+        currentUserId: _currentUserId,
+        routeIds: routeIds,
+        shouldYield: () => _disposed || _queuedPasses > 0,
+      );
+    } catch (error) {
+      // A media failure must never affect route sync; treat as no knowledge.
+      debugPrint('gps media sync: phase error (${error.runtimeType})');
+      result =
+          const JourneyMediaPhaseResult(JourneyMediaPhaseOutcome.indeterminate);
+    }
+
+    // Backoff rule:
+    // - any INDETERMINATE phase sets/extends it (30 s doubling, max 15 min);
+    // - it is cleared ONLY by an unrestricted phase (the whole actionable
+    //   set, not a single-route retry) that ended `clean` -- not yielded,
+    //   capped or stopped -- after settling at least one item itself. Only
+    //   then were all outstanding items, including the one that failed
+    //   transiently, actually re-attempted successfully;
+    // - everything else (not run, deferred for an active recording, no
+    //   eligible items, yielded, capped, single-route retry) leaves it as is.
+    switch (result.outcome) {
+      case JourneyMediaPhaseOutcome.indeterminate:
+        final factor = 1 << _mediaBackoffStep.clamp(0, 10);
+        final delay = _mediaBackoffBase * factor;
+        _mediaBackoffUntil =
+            _clock().add(delay > _mediaBackoffMax ? _mediaBackoffMax : delay);
+        _mediaBackoffStep++;
+      case JourneyMediaPhaseOutcome.clean
+          when routeIds == null && result.settled > 0:
+        _mediaBackoffUntil = null;
+        _mediaBackoffStep = 0;
+      default:
+        break;
+    }
+  }
+
   Future<void> _serialized(Future<void> Function() action) {
-    final next = _passLock.then((_) => action());
+    _queuedPasses++;
+    final next = _passLock.then((_) {
+      _queuedPasses--;
+      return action();
+    });
     // Swallow so one failed pass never poisons the lock chain for the
     // next caller — each pass already records its own outcome onto the
     // relevant route(s); there is nothing further to propagate here.
@@ -339,6 +438,12 @@ final gpsSyncRepositoryProvider = Provider<GpsSyncRepository>((ref) {
   return SupabaseGpsSyncRepository(Supabase.instance.client);
 });
 
+/// Journey Phase 1H-E2B -- the signed-in user's own session; no service key.
+final journeyMediaSyncRepositoryProvider =
+    Provider<JourneyMediaSyncRepository>((ref) {
+  return SupabaseJourneyMediaSyncRepository(Supabase.instance.client);
+});
+
 /// Non-`autoDispose`, same reasoning as [gpsRecordingControllerProvider]:
 /// a sync pass must be able to run to completion (and the coordinator's
 /// connectivity/lifecycle/recording-state listeners must stay alive)
@@ -372,6 +477,11 @@ final gpsSyncCoordinatorProvider =
     repository: repository,
     onlineStatusStream: onlineController.stream,
     recordingStateStream: recordingController.stream,
+    mediaSync: JourneyMediaSync(
+      db: db,
+      storage: ref.watch(journeyMediaStorageProvider),
+      repository: ref.watch(journeyMediaSyncRepositoryProvider),
+    ),
   );
   ref.onDispose(() {
     coordinator.dispose();

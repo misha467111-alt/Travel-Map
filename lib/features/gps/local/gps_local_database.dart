@@ -297,8 +297,18 @@ enum JourneyMediaDeleteOutcome {
 ///
 /// No foreign keys, matching the other GPS tables: isolation is enforced by
 /// every query being scoped by owner + route.
+///
+/// Journey Phase 1H-E2B: `local_journey_media_actionable_idx` is a partial
+/// index over exactly the rows a media-sync pass processes (`pending`), so
+/// finding Journeys with outstanding uploads never scans media history --
+/// once everything is synced the index is empty (see
+/// [GpsLocalDatabase.getRouteIdsWithActionableMedia]).
 @TableIndex(name: 'local_journey_media_route_idx', columns: {#recordedRouteId})
 @TableIndex(name: 'local_journey_media_waypoint_idx', columns: {#waypointId})
+@TableIndex.sql(
+  'CREATE INDEX local_journey_media_actionable_idx '
+  "ON local_journey_media (owner_id, recorded_route_id) WHERE sync_status = 'pending'",
+)
 @DataClassName('LocalJourneyMediaItem')
 class LocalJourneyMedia extends Table {
   TextColumn get id => text()();
@@ -342,11 +352,14 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
   GpsLocalDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   /// v1 -> v2 (Journey Phase 1H-B): adds the local-only [LocalJourneyMedia]
   /// table and its indexes. Purely additive, so every existing v1 row is
   /// untouched. Fresh installs create everything at once.
+  ///
+  /// v2 -> v3 (Journey Phase 1H-E2B): adds only the partial
+  /// `local_journey_media_actionable_idx` (no table or column change).
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) => m.createAll(),
@@ -355,6 +368,9 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
             await m.createTable(localJourneyMedia);
             await m.createIndex(localJourneyMediaRouteIdx);
             await m.createIndex(localJourneyMediaWaypointIdx);
+          }
+          if (from < 3) {
+            await m.createIndex(localJourneyMediaActionableIdx);
           }
         },
       );
@@ -1288,27 +1304,111 @@ class GpsLocalDatabase extends _$GpsLocalDatabase {
     return paths;
   }
 
-  /// Marks media as uploaded. Primitive for a future media-sync phase; no
-  /// current code calls it. Throws on a tombstone (use
-  /// [purgeAcknowledgedJourneyMediaTombstone]).
-  Future<void> markJourneyMediaSynced({
+  /// Journey Phase 1H-E2B -- the exact query behind
+  /// [getRouteIdsWithActionableMedia], public so a test can prove with
+  /// `EXPLAIN QUERY PLAN` that SQLite uses `local_journey_media_actionable_idx`.
+  ///
+  /// `m.sync_status = 'pending'` is the index's own predicate verbatim, and
+  /// `CROSS JOIN` pins `local_journey_media` as the outer loop (SQLite never
+  /// reorders a CROSS JOIN), so the planner reads only the partial index's
+  /// entries for this owner and then does one primary-key lookup per route.
+  static const actionableMediaRoutesSql = 'SELECT DISTINCT m.recorded_route_id '
+      'FROM local_journey_media AS m '
+      'CROSS JOIN local_recorded_routes AS r ON r.id = m.recorded_route_id '
+      'WHERE m.owner_id = ?1 '
+      "AND m.sync_status = 'pending' "
+      'AND r.owner_id = ?1 '
+      "AND r.status = 'completed' "
+      "AND r.sync_status = 'synced' "
+      'ORDER BY m.recorded_route_id';
+
+  /// Journey Phase 1H-E2B -- ids of this owner's locally completed,
+  /// remotely finalized (`syncStatus == synced`) routes that still have
+  /// `pending` media. A synced route is never revisited by the route sync
+  /// itself, so this is how outstanding uploads are found again. Never scans
+  /// media history: it reads only the partial index (empty once everything is
+  /// synced). Pure SQLite -- no network, no location services.
+  Future<List<String>> getRouteIdsWithActionableMedia({
+    required String ownerId,
+  }) async {
+    final rows = await customSelect(
+      actionableMediaRoutesSql,
+      variables: [Variable.withString(ownerId)],
+      readsFrom: {localJourneyMedia, localRecordedRoutes},
+    ).get();
+    return rows
+        .map((row) => row.read<String>('recorded_route_id'))
+        .toList(growable: false);
+  }
+
+  /// Acknowledges a remotely-proven upload: `pending -> synced` only, as one
+  /// conditional update inside a transaction. Returns `true` only if exactly
+  /// that row transitioned; any other state (already synced, failed, gone)
+  /// returns `false` and changes nothing. Still throws on a tombstone (use
+  /// [purgeAcknowledgedJourneyMediaTombstone]) -- a deletion must never be
+  /// acknowledged as an upload.
+  Future<bool> markJourneyMediaSynced({
+    required String ownerId,
+    required String recordedRouteId,
+    required String id,
+  }) {
+    return transaction(() async {
+      final row = await getJourneyMediaItem(
+          ownerId: ownerId, recordedRouteId: recordedRouteId, id: id);
+      if (row == null) return false;
+      if (row.syncStatus == JourneyMediaSyncStatus.pendingDelete) {
+        throw StateError(
+            'markJourneyMediaSynced called on tombstoned media $id');
+      }
+      final updated = await (update(localJourneyMedia)
+            ..where((t) =>
+                t.ownerId.equals(ownerId) &
+                t.recordedRouteId.equals(recordedRouteId) &
+                t.id.equals(id) &
+                t.syncStatus.equals(JourneyMediaSyncStatus.pending)))
+          .write(LocalJourneyMediaCompanion(
+        syncStatus: const Value(JourneyMediaSyncStatus.synced),
+        updatedAt: Value(DateTime.now().toUtc()),
+      ));
+      return updated == 1;
+    });
+  }
+
+  /// Journey Phase 1H-E2B -- parks a `pending` item as `failed` after a
+  /// definitive (non-retryable) sync outcome. Conditional on `pending`, so it
+  /// can never touch a synced row or a tombstone. Returns whether it did.
+  Future<bool> markJourneyMediaFailed({
     required String ownerId,
     required String recordedRouteId,
     required String id,
   }) async {
-    final row = await getJourneyMediaItem(
-        ownerId: ownerId, recordedRouteId: recordedRouteId, id: id);
-    if (row == null) return;
-    if (row.syncStatus == JourneyMediaSyncStatus.pendingDelete) {
-      throw StateError('markJourneyMediaSynced called on tombstoned media $id');
-    }
-    await (update(localJourneyMedia)
+    final updated = await (update(localJourneyMedia)
           ..where((t) =>
               t.ownerId.equals(ownerId) &
               t.recordedRouteId.equals(recordedRouteId) &
-              t.id.equals(id)))
+              t.id.equals(id) &
+              t.syncStatus.equals(JourneyMediaSyncStatus.pending)))
         .write(LocalJourneyMediaCompanion(
-      syncStatus: const Value(JourneyMediaSyncStatus.synced),
+      syncStatus: const Value(JourneyMediaSyncStatus.failed),
+      updatedAt: Value(DateTime.now().toUtc()),
+    ));
+    return updated == 1;
+  }
+
+  /// Journey Phase 1H-E2B -- explicit user retry: returns this route's
+  /// `failed` media to `pending`. Owner- and route-scoped; never touches
+  /// synced media or tombstones. Returns how many rows were requeued.
+  Future<int> requeueFailedJourneyMedia({
+    required String ownerId,
+    required String recordedRouteId,
+  }) {
+    return (update(localJourneyMedia)
+          ..where((t) =>
+              t.ownerId.equals(ownerId) &
+              t.recordedRouteId.equals(recordedRouteId) &
+              t.syncStatus.equals(JourneyMediaSyncStatus.failed)))
+        .write(LocalJourneyMediaCompanion(
+      syncStatus: const Value(JourneyMediaSyncStatus.pending),
       updatedAt: Value(DateTime.now().toUtc()),
     ));
   }

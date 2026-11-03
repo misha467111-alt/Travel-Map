@@ -12,7 +12,11 @@ import 'dart:typed_data';
 /// `local_journey_media`). A genuine v1 database is simulated on a real
 /// SQLite file: build the current schema, DROP the new table and reset
 /// `user_version` to 1 -- exactly the shape a v1 install has -- then reopen
-/// with the v2 class so Drift runs `onUpgrade(1, 2)`.
+/// with the current class so Drift runs `onUpgrade(1, 3)`.
+///
+/// Journey Phase 1H-E2B: v2 -> v3 adds only the partial
+/// `local_journey_media_actionable_idx` (see the M01 tests), simulated the
+/// same way: DROP that index and reset `user_version` to 2.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -75,15 +79,16 @@ void main() {
     await db.close();
   }
 
-  test('A fresh installs are created at schema v2 with the media table',
+  test('A fresh installs are created at schema v3 with the media table',
       () async {
     final db = open();
     addTearDown(db.close);
 
-    expect(db.schemaVersion, 2);
-    expect(await userVersion(db), 2);
+    expect(db.schemaVersion, 3);
+    expect(await userVersion(db), 3);
     expect(await mediaSchemaObjects(db), [
       'local_journey_media',
+      'local_journey_media_actionable_idx',
       'local_journey_media_route_idx',
       'local_journey_media_waypoint_idx',
     ]);
@@ -97,9 +102,10 @@ void main() {
     final db = open();
     addTearDown(db.close);
 
-    expect(await userVersion(db), 2);
+    expect(await userVersion(db), 3);
     expect(await mediaSchemaObjects(db), [
       'local_journey_media',
+      'local_journey_media_actionable_idx',
       'local_journey_media_route_idx',
       'local_journey_media_waypoint_idx',
     ]);
@@ -176,14 +182,155 @@ void main() {
     final second = open();
     addTearDown(second.close);
 
-    expect(await userVersion(second), 2);
+    expect(await userVersion(second), 3);
     expect(await mediaSchemaObjects(second), firstObjects);
     expect(
         (await second.getJourneyMedia(ownerId: 'me', recordedRouteId: 'r2'))
             .single
             .id,
         'x1',
-        reason: 'reopening at v2 must not re-run or clear anything');
+        reason: 'reopening at v3 must not re-run or clear anything');
+  });
+
+  // -------------------------------------------------------------------
+  // M01 -- Journey Phase 1H-E2B: v2 -> v3 adds ONLY the partial
+  // `local_journey_media_actionable_idx`.
+  // -------------------------------------------------------------------
+
+  const actionableIdx = 'local_journey_media_actionable_idx';
+
+  Future<int> actionableIndexCount(GpsLocalDatabase db) async => (await db
+          .customSelect("SELECT count(*) AS n FROM sqlite_master "
+              "WHERE type = 'index' AND name = '$actionableIdx'")
+          .getSingle())
+      .read<int>('n');
+
+  /// A genuine v2 database (Phases 1H-B..1H-E1): today's schema minus the v3
+  /// index, `user_version = 2`, holding route/point/event/waypoint rows and
+  /// media in several sync states.
+  Future<void> seedV2() async {
+    final db = open();
+    await db.createLocalRecordedRoute(
+        id: 'r1', ownerId: 'me', title: 'V2 trip', startedAt: t0);
+    await db.appendRoutePoint(
+        ownerId: 'me',
+        recordedRouteId: 'r1',
+        latitude: 50,
+        longitude: 30,
+        recordedAt: t0);
+    await db.addWaypoint(
+        id: 'm1',
+        ownerId: 'me',
+        recordedRouteId: 'r1',
+        waypointType: 'custom',
+        latitude: 50,
+        longitude: 30,
+        recordedAt: t0);
+    for (final id in ['x1', 'x2', 'x3']) {
+      await db.insertJourneyMedia(
+          id: id,
+          ownerId: 'me',
+          recordedRouteId: 'r1',
+          capturedAt: t0,
+          localRelativePath: 'journey_media/r1/$id.jpg');
+    }
+    await db.customStatement(
+        "UPDATE local_journey_media SET sync_status = 'failed' WHERE id = 'x2'");
+    await db.customStatement(
+        "UPDATE local_journey_media SET sync_status = 'synced' WHERE id = 'x3'");
+    await db.finishRecordingLocally(
+        ownerId: 'me',
+        routeId: 'r1',
+        occurredAt: t0.add(const Duration(minutes: 5)));
+    await db.recordRouteSyncOutcome(
+        ownerId: 'me', routeId: 'r1', syncStatus: RouteSyncStatus.synced);
+    await db.customStatement('DROP INDEX $actionableIdx');
+    await db.customStatement('PRAGMA user_version = 2');
+    await db.close();
+  }
+
+  test(
+      'M01 a v2 database upgrades to v3: additive, every row preserved, the '
+      'partial index created exactly once', () async {
+    await seedV2();
+
+    final db = open();
+    addTearDown(db.close);
+
+    expect(await userVersion(db), 3);
+    expect(await actionableIndexCount(db), 1);
+    final sql = (await db
+            .customSelect(
+                "SELECT sql FROM sqlite_master WHERE name = '$actionableIdx'")
+            .getSingle())
+        .read<String>('sql');
+    expect(sql, contains('(owner_id, recorded_route_id)'));
+    expect(sql, contains("WHERE sync_status = 'pending'"));
+    expect(sql, isNot(contains('pendingDelete')));
+
+    final route = await db.getRecordedRoute(ownerId: 'me', id: 'r1');
+    expect(route!.title, 'V2 trip');
+    expect(route.status, RecordedRouteStatus.completed);
+    expect(route.syncStatus, RouteSyncStatus.synced);
+    expect(await db.getRoutePoints(ownerId: 'me', recordedRouteId: 'r1'),
+        hasLength(1));
+    expect(
+        (await db.getWaypoints(ownerId: 'me', recordedRouteId: 'r1')).single.id,
+        'm1');
+    expect(
+        (await db.getRouteEvents(ownerId: 'me', recordedRouteId: 'r1')).length,
+        2);
+    final media =
+        await db.getJourneyMedia(ownerId: 'me', recordedRouteId: 'r1');
+    expect({
+      for (final m in media) m.id: m.syncStatus
+    }, {
+      'x1': JourneyMediaSyncStatus.pending,
+      'x2': JourneyMediaSyncStatus.failed,
+      'x3': JourneyMediaSyncStatus.synced,
+    });
+    expect(await db.getRouteIdsWithActionableMedia(ownerId: 'me'), ['r1']);
+  });
+
+  test('M01 fresh install at v3 has the index once; reopening is safe',
+      () async {
+    final first = open();
+    expect(await userVersion(first), 3);
+    expect(await actionableIndexCount(first), 1);
+    await first.createLocalRecordedRoute(
+        id: 'r1', ownerId: 'me', startedAt: t0);
+    await first.insertJourneyMedia(
+        id: 'x1',
+        ownerId: 'me',
+        recordedRouteId: 'r1',
+        capturedAt: t0,
+        localRelativePath: 'journey_media/r1/x1.jpg');
+    await first.close();
+
+    final second = open();
+    addTearDown(second.close);
+    expect(await userVersion(second), 3);
+    expect(await actionableIndexCount(second), 1);
+    expect(
+        (await second.getJourneyMedia(ownerId: 'me', recordedRouteId: 'r1'))
+            .single
+            .id,
+        'x1');
+  });
+
+  test('M01 an upgraded v3 database reopens without re-running the step',
+      () async {
+    await seedV2();
+    final first = open();
+    expect(await actionableIndexCount(first), 1);
+    await first.close();
+
+    final second = open();
+    addTearDown(second.close);
+    expect(await userVersion(second), 3);
+    expect(await actionableIndexCount(second), 1);
+    expect(await second.getJourneyMedia(ownerId: 'me', recordedRouteId: 'r1'),
+        hasLength(3));
   });
 
   test('I media metadata and its file survive reopening the database',

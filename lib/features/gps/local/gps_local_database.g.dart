@@ -3134,6 +3134,9 @@ abstract class _$GpsLocalDatabase extends GeneratedDatabase {
   late final Index localJourneyMediaWaypointIdx = Index(
       'local_journey_media_waypoint_idx',
       'CREATE INDEX local_journey_media_waypoint_idx ON local_journey_media (waypoint_id)');
+  late final Index localJourneyMediaActionableIdx = Index(
+      'local_journey_media_actionable_idx',
+      'CREATE INDEX local_journey_media_actionable_idx ON local_journey_media (owner_id, recorded_route_id) WHERE sync_status = \'pending\'');
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3148,7 +3151,8 @@ abstract class _$GpsLocalDatabase extends GeneratedDatabase {
         localRecordedRoutesOneActivePerOwner,
         localWaypointsRouteIdx,
         localJourneyMediaRouteIdx,
-        localJourneyMediaWaypointIdx
+        localJourneyMediaWaypointIdx,
+        localJourneyMediaActionableIdx
       ];
 }
 
