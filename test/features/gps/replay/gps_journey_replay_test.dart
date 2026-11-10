@@ -1352,6 +1352,326 @@ void main() {
     });
   });
 
+  group('geometry (1I-B0 read-only view of the accepted samples)', () {
+    LocalRoutePoint g(int seq, double lat, num seconds) =>
+        pt(seq, lat, 30.0, s(seconds));
+
+    // Mixed fixture: a pause gap, an impossible-jump gap, a rejected sample
+    // (-> "other" gap) and a zero-length segment (-> "other" gap).
+    List<LocalRoutePoint> mixedPoints() => [
+          g(1, 50.0000, 10),
+          g(2, 50.0001, 15),
+          g(3, 50.0002, 22),
+          g(4, 50.0003, 50), // after the 25..45 pause
+          g(5, 51.0000, 55), // ~111 km in 5 s
+          g(6, 51.0001, 60),
+          g(7, double.nan, 65), // rejected: invalid coordinate
+          g(8, 51.0002, 70),
+          g(9, 51.0002, 70), // duplicate timestamp: zero-length segment
+          g(10, 51.0003, 75),
+        ];
+    List<LocalRouteEvent> mixedEvents() => events(100, between: [
+          (RouteEventType.pause, 25),
+          (RouteEventType.resume, 45),
+        ]);
+
+    GpsReplayTimeline mixed() =>
+        build(points: mixedPoints(), eventLog: mixedEvents());
+
+    test('G01 runs and gaps describe exactly the accepted samples', () {
+      final tl = mixed();
+
+      expect(tl.sampleCount, 9);
+      final shape = [
+        for (final r in tl.runs) (r.startIndex, r.endIndex, r.gapBefore),
+      ];
+      expect(shape, [
+        (0, 3, null),
+        (3, 4, GpsReplayGapKind.pause),
+        (4, 6, GpsReplayGapKind.impossibleJump),
+        (6, 7, GpsReplayGapKind.other),
+        (7, 9, GpsReplayGapKind.other),
+      ]);
+      // The rejected (NaN) sample never reappears.
+      for (var i = 0; i < tl.sampleCount; i++) {
+        expect(tl.latitudeAt(i).isFinite, isTrue);
+      }
+      expect([
+        for (var i = 0; i < tl.sampleCount; i++) tl.latitudeAt(i)
+      ], [
+        50.0000,
+        50.0001,
+        50.0002,
+        50.0003,
+        51.0000,
+        51.0001,
+        51.0002,
+        51.0002,
+        51.0003,
+      ]);
+      expect(tl.longitudeAt(0), 30.0);
+      expect(tl.playbackTimeAt(0), sec(10));
+      expect(tl.playbackTimeAt(3), sec(30), reason: '50 s wall - 20 s paused');
+      // Counts agree with the diagnostics the builder already reports.
+      int gaps(GpsReplayGapKind k) =>
+          tl.runs.where((r) => r.gapBefore == k).length;
+      expect(gaps(GpsReplayGapKind.pause), tl.diagnostics.pauseGapSegments);
+      expect(gaps(GpsReplayGapKind.impossibleJump),
+          tl.diagnostics.impossibleJumpSegments);
+      expect(gaps(GpsReplayGapKind.other), tl.diagnostics.otherGapSegments);
+    });
+
+    test('G02 a gap is never inside a run: positionAt agrees on every segment',
+        () {
+      final tl = mixed();
+      for (var i = 0; i + 1 < tl.sampleCount; i++) {
+        final a = tl.playbackTimeAt(i);
+        final b = tl.playbackTimeAt(i + 1);
+        final sameRun = tl.runIndexOfSample(i) == tl.runIndexOfSample(i + 1);
+        if (b <= a) {
+          expect(sameRun, isFalse, reason: 'zero-length segment $i');
+          continue;
+        }
+        final mid = Duration(microseconds: (a + b).inMicroseconds ~/ 2);
+        final p = tl.positionAt(mid);
+        expect(
+            p.kind,
+            sameRun
+                ? GpsReplayPositionKind.interpolated
+                : GpsReplayPositionKind.held,
+            reason: 'segment $i');
+      }
+    });
+
+    test('G03 runs partition the samples; run lookup is consistent', () {
+      final tl = mixed();
+      var expectedStart = 0;
+      for (var r = 0; r < tl.runs.length; r++) {
+        final run = tl.runs[r];
+        expect(run.startIndex, expectedStart);
+        expect(run.length, greaterThan(0));
+        expect(run.gapBefore == null, r == 0);
+        for (var i = run.startIndex; i < run.endIndex; i++) {
+          expect(tl.runIndexOfSample(i), r);
+        }
+        expectedStart = run.endIndex;
+      }
+      expect(expectedStart, tl.sampleCount);
+    });
+
+    test(
+        'G04 sampleIndexAt: boundaries, clamping and agreement with positionAt',
+        () {
+      final tl = build(points: [
+        g(1, 50.0000, 10),
+        g(2, 50.0001, 20),
+        g(3, 50.0002, 30),
+      ]);
+
+      expect(tl.sampleIndexAt(Duration.zero), -1);
+      expect(tl.sampleIndexAt(const Duration(microseconds: -5)), -1);
+      expect(tl.sampleIndexAt(sec(10) - const Duration(microseconds: 1)), -1);
+      expect(tl.sampleIndexAt(sec(10)), 0);
+      expect(tl.sampleIndexAt(sec(10) + const Duration(microseconds: 1)), 0);
+      expect(tl.sampleIndexAt(sec(20) - const Duration(microseconds: 1)), 0);
+      expect(tl.sampleIndexAt(sec(20)), 1);
+      expect(tl.sampleIndexAt(sec(30)), 2);
+      expect(tl.sampleIndexAt(tl.activeDuration), 2);
+      expect(tl.sampleIndexAt(sec(100000)), 2, reason: 'clamped');
+
+      for (var m = 0; m <= 100000000; m += 700001) {
+        final t = Duration(microseconds: m);
+        final i = tl.sampleIndexAt(t);
+        final p = tl.positionAt(t);
+        if (i < 0) {
+          expect(p.kind, GpsReplayPositionKind.leading);
+        } else {
+          expect(
+              p.kind == GpsReplayPositionKind.exact, tl.playbackTimeAt(i) == t);
+          if (p.kind != GpsReplayPositionKind.interpolated) {
+            expect(p.latitude, tl.latitudeAt(i), reason: 'm=$m');
+          } else {
+            expect(p.latitude,
+                inInclusiveRange(tl.latitudeAt(i), tl.latitudeAt(i + 1)));
+          }
+        }
+      }
+    });
+
+    test('G05 samples inside one pause share a playback time; the last wins',
+        () {
+      final tl = build(
+          points: [
+            g(1, 50.0000, 10),
+            g(2, 50.0001, 30), // inside the 25..45 pause
+            g(3, 50.0001, 40), // inside the pause too
+            g(4, 50.0002, 60),
+          ],
+          eventLog: events(100, between: [
+            (RouteEventType.pause, 25),
+            (RouteEventType.resume, 45),
+          ]));
+
+      expect(tl.sampleCount, 4);
+      expect(tl.playbackTimeAt(1), tl.playbackTimeAt(2));
+      expect(tl.sampleIndexAt(tl.playbackTimeAt(1)), 2);
+      expect(tl.positionAt(tl.playbackTimeAt(1)).latitude, tl.latitudeAt(2));
+      expect(tl.runs.length, greaterThan(1),
+          reason: 'zero active duration is a gap, never a drawn segment');
+      expect(tl.runIndexOfSample(1), isNot(tl.runIndexOfSample(2)));
+    });
+
+    test('G06 rejected spikes and after-finish points do not appear', () {
+      final tl = build(eventLog: events(6000), points: [
+        g(1, 50.0000, 10),
+        g(2, 50.5000, 5000), // future-stamped spike, contradicted below
+        g(3, 50.0002, 30),
+        g(4, 50.0003, 40),
+        g(5, 50.0004, 50),
+        g(6, 59.0, 7000), // after the finish
+      ]);
+
+      expect(tl.diagnostics.futureSpikePoints, 1);
+      expect(tl.diagnostics.outsideFinishPoints, 1);
+      expect([for (var i = 0; i < tl.sampleCount; i++) tl.latitudeAt(i)],
+          [50.0000, 50.0002, 50.0003, 50.0004]);
+      expect(tl.runs.length, 2, reason: 'the rejected spike is a gap');
+      expect(tl.runs[1].gapBefore, GpsReplayGapKind.other);
+      expect(tl.runs[1].startIndex, 1);
+    });
+
+    test('G07 empty, single-point and axis-less journeys', () {
+      final empty = build(eventLog: events(60));
+      expect(empty.runs, isEmpty);
+      expect(empty.sampleIndexAt(sec(30)), -1);
+      expect(() => empty.latitudeAt(0), throwsRangeError);
+      expect(() => empty.runIndexOfSample(0), throwsRangeError);
+
+      final single = build(points: [g(1, 50.0, 10)]);
+      expect(single.runs.length, 1);
+      expect(single.runs.single.startIndex, 0);
+      expect(single.runs.single.endIndex, 1);
+      expect(single.runs.single.length, 1);
+      expect(single.runs.single.gapBefore, isNull);
+      expect(single.sampleIndexAt(sec(9)), -1);
+      expect(single.sampleIndexAt(sec(10)), 0);
+      expect(single.sampleIndexAt(sec(99)), 0);
+      expect(single.runIndexOfSample(0), 0);
+
+      // No `start` event: there is no axis, hence no accepted sample.
+      final axisless = build(
+          points: [g(1, 50.0, 10)],
+          eventLog: [ev(1, RouteEventType.finish, s(100))]);
+      expect(axisless.sampleCount, 0);
+      expect(axisless.runs, isEmpty);
+      expect(axisless.sampleIndexAt(sec(10)), -1);
+    });
+
+    test('G08 the exposed view is immutable and bounds-checked', () {
+      final tl = mixed();
+      final runs = tl.runs;
+
+      expect(identical(tl.runs, runs), isTrue, reason: 'built once');
+      expect(() => runs.add(runs.first), throwsUnsupportedError);
+      expect(() => runs.removeLast(), throwsUnsupportedError);
+      expect(() => runs.clear(), throwsUnsupportedError);
+      expect(() => runs[0] = runs[1], throwsUnsupportedError);
+      for (final bad in [-1, tl.sampleCount, tl.sampleCount + 5]) {
+        expect(() => tl.latitudeAt(bad), throwsRangeError);
+        expect(() => tl.longitudeAt(bad), throwsRangeError);
+        expect(() => tl.playbackTimeAt(bad), throwsRangeError);
+        expect(() => tl.runIndexOfSample(bad), throwsRangeError);
+      }
+      // Reading the geometry never alters behavior.
+      final before = [
+        for (var m = 0; m <= 90000000; m += 1300007)
+          tl.positionAt(Duration(microseconds: m)).latitude
+      ];
+      expect(tl.runs, isNotEmpty);
+      expect(tl.sampleIndexAt(sec(40)), isNonNegative);
+      final after = [
+        for (var m = 0; m <= 90000000; m += 1300007)
+          tl.positionAt(Duration(microseconds: m)).latitude
+      ];
+      expect(after, before);
+    });
+
+    test('G09 owner / route isolation reaches the geometry', () {
+      final tl = build(points: [
+        g(1, 50.0000, 10),
+        pt(2, 49.0, 30.0, s(15), ownerId: 'someone-else'),
+        pt(3, 48.0, 30.0, s(16), route: 'other-route'),
+        g(4, 50.0001, 20),
+      ]);
+      expect(tl.diagnostics.excludedForeignItems, 2);
+      expect([for (var i = 0; i < tl.sampleCount; i++) tl.latitudeAt(i)],
+          [50.0000, 50.0001]);
+      expect(tl.runs.length, 1);
+    });
+
+    test('G10 randomized: invariants hold against brute force', () {
+      for (var seed = 0; seed < 300; seed++) {
+        final random = Random(seed);
+        final pts = <LocalRoutePoint>[];
+        var at = 0.0;
+        for (var i = 0; i < 1 + random.nextInt(40); i++) {
+          at += random.nextInt(4) == 0 ? 0 : random.nextDouble() * 12;
+          var stamped = at;
+          final roll = random.nextInt(12);
+          if (roll == 0) stamped = at + 5000; // spike / after finish
+          if (roll == 1) stamped = at - random.nextDouble() * 30; // late
+          final lat = roll == 2
+              ? double.nan
+              : 50 + (random.nextInt(8) == 0 ? 1.0 : 0.0) + i * 1e-5;
+          pts.add(g(i + 1, lat, stamped));
+        }
+        final tl = build(
+            points: pts,
+            eventLog: events(300, between: [
+              (RouteEventType.pause, 60),
+              (RouteEventType.resume, 90),
+            ]));
+
+        // Runs partition the samples in order.
+        var next = 0;
+        for (var r = 0; r < tl.runs.length; r++) {
+          expect(tl.runs[r].startIndex, next, reason: 'seed $seed');
+          expect(tl.runs[r].gapBefore == null, r == 0, reason: 'seed $seed');
+          next = tl.runs[r].endIndex;
+        }
+        expect(next, tl.sampleCount, reason: 'seed $seed');
+        int gaps(GpsReplayGapKind k) =>
+            tl.runs.where((r) => r.gapBefore == k).length;
+        expect(gaps(GpsReplayGapKind.pause), tl.diagnostics.pauseGapSegments,
+            reason: 'seed $seed');
+        expect(gaps(GpsReplayGapKind.impossibleJump),
+            tl.diagnostics.impossibleJumpSegments,
+            reason: 'seed $seed');
+        expect(gaps(GpsReplayGapKind.other), tl.diagnostics.otherGapSegments,
+            reason: 'seed $seed');
+
+        // Playback times never decrease; lookup equals a linear scan.
+        for (var i = 1; i < tl.sampleCount; i++) {
+          expect(tl.playbackTimeAt(i) >= tl.playbackTimeAt(i - 1), isTrue,
+              reason: 'seed $seed');
+        }
+        for (var k = 0; k <= 60; k++) {
+          final t = Duration(
+              microseconds: -1000000 +
+                  k * (tl.activeDuration.inMicroseconds + 2000000) ~/ 60);
+          final clamped = t.isNegative
+              ? Duration.zero
+              : (t > tl.activeDuration ? tl.activeDuration : t);
+          var expected = -1;
+          for (var i = 0; i < tl.sampleCount; i++) {
+            if (tl.playbackTimeAt(i) <= clamped) expected = i;
+          }
+          expect(tl.sampleIndexAt(t), expected, reason: 'seed $seed k $k');
+        }
+      }
+    });
+  });
+
   group('loader (real Drift readers)', () {
     late GpsLocalDatabase db;
     setUp(() => db = GpsLocalDatabase.forTesting(NativeDatabase.memory()));

@@ -353,4 +353,121 @@ void main() {
     }
     expect(body.contains('_upperBound('), isTrue);
   });
+
+  test('X04 geometry of the 50 000-point Journey matches the analytic oracle',
+      () {
+    final tl = buildTimeline();
+
+    // Nothing is materialized until asked for.
+    final rssBefore = ProcessInfo.currentRss;
+    final access = Stopwatch()..start();
+    final runs = tl.runs;
+    access.stop();
+    final rssAfter = ProcessInfo.currentRss;
+
+    // The only gaps are the 9 pauses: 10 runs of 5000 samples each.
+    expect(runs.length, pauseCount + 1);
+    for (var r = 0; r < runs.length; r++) {
+      expect(runs[r].startIndex, r * pauseEvery);
+      expect(runs[r].endIndex, (r + 1) * pauseEvery);
+      expect(runs[r].gapBefore, r == 0 ? isNull : GpsReplayGapKind.pause);
+    }
+    expect(identical(tl.runs, runs), isTrue);
+
+    // Sample i is at active time 2 * (i + 1) s and latitude lat(i).
+    for (var i = 0; i < pointCount; i += 11) {
+      expect(tl.latitudeAt(i), lat(i));
+      expect(tl.longitudeAt(i), 30.0);
+      expect(tl.playbackTimeAt(i), Duration(seconds: 2 * (i + 1)));
+      expect(tl.runIndexOfSample(i), i ~/ pauseEvery);
+    }
+
+    // sampleIndexAt against the closed form, O(log n) per call.
+    final random = Random(20260102);
+    final totalMicros = (2 * pointCount + 2) * 1000000;
+    final lookups = Stopwatch()..start();
+    for (var n = 0; n < 20000; n++) {
+      final micros = (random.nextDouble() * (totalMicros + 1)).floor();
+      final expected = micros < 2000000
+          ? -1
+          : ((micros ~/ 2000000) - 1).clamp(0, pointCount - 1);
+      expect(tl.sampleIndexAt(Duration(microseconds: micros)), expected,
+          reason: '$micros');
+    }
+    lookups.stop();
+    expect(tl.sampleIndexAt(Duration.zero), -1);
+    expect(tl.sampleIndexAt(tl.activeDuration), pointCount - 1);
+
+    // ignore: avoid_print
+    print('REPLAY_PERF_GEOMETRY points=$pointCount runs=${runs.length} '
+        'runs_ms=${access.elapsedMilliseconds} '
+        'lookups=20000 lookup_ms=${lookups.elapsedMilliseconds} '
+        'rss_delta_mb=${((rssAfter - rssBefore) / 1048576).toStringAsFixed(1)}');
+  });
+
+  test('X05 worst case: every sample its own run stays bounded', () {
+    // Alternating latitudes 1 degree apart every 2 s: every segment is an
+    // impossible jump, so 50 000 samples form 50 000 single-sample runs.
+    var seq = 1;
+    final jumpy = [
+      for (var i = 0; i < pointCount; i++)
+        LocalRoutePoint(
+          recordedRouteId: routeId,
+          seq: seq++,
+          ownerId: owner,
+          latitude: i.isEven ? 50.0 : 51.0,
+          longitude: 30.0,
+          recordedAt: s(2.0 * (i + 1)),
+        ),
+    ];
+    final tl = GpsReplayTimeline.build(
+      route: LocalRecordedRoute(
+        id: routeId,
+        ownerId: owner,
+        transportMode: 'walking',
+        status: RecordedRouteStatus.completed,
+        visibility: 'private',
+        startedAt: t0,
+        createdAt: t0,
+        updatedAt: t0,
+        syncStatus: RouteSyncStatus.synced,
+      ),
+      points: jumpy,
+      events: [
+        LocalRouteEvent(
+            recordedRouteId: routeId,
+            seq: 1,
+            ownerId: owner,
+            eventType: RouteEventType.start,
+            occurredAt: s(0)),
+        LocalRouteEvent(
+            recordedRouteId: routeId,
+            seq: 2,
+            ownerId: owner,
+            eventType: RouteEventType.finish,
+            occurredAt: s(2.0 * pointCount + 2)),
+      ],
+      now: s(10000000),
+    );
+
+    final rssBefore = ProcessInfo.currentRss;
+    final access = Stopwatch()..start();
+    final runs = tl.runs;
+    access.stop();
+    final rssAfter = ProcessInfo.currentRss;
+
+    expect(tl.sampleCount, pointCount);
+    expect(runs.length, pointCount);
+    expect(tl.diagnostics.impossibleJumpSegments, pointCount - 1);
+    expect(runs.every((r) => r.length == 1), isTrue);
+    expect(
+        runs
+            .skip(1)
+            .every((r) => r.gapBefore == GpsReplayGapKind.impossibleJump),
+        isTrue);
+    // ignore: avoid_print
+    print('REPLAY_PERF_GEOMETRY_WORST runs=${runs.length} '
+        'runs_ms=${access.elapsedMilliseconds} '
+        'rss_delta_mb=${((rssAfter - rssBefore) / 1048576).toStringAsFixed(1)}');
+  });
 }

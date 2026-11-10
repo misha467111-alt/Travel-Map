@@ -103,6 +103,7 @@ class GpsReplayTimeline {
     required Int64List wallMicros,
     required Int64List activeMicros,
     required Uint8List continuousFromPrevious,
+    required Uint8List gapKinds,
     required List<GpsReplayMarker> markers,
     required Int64List markerActiveMicros,
   })  : _breakWall = breakWall,
@@ -114,6 +115,7 @@ class GpsReplayTimeline {
         _wall = wallMicros,
         _active = activeMicros,
         _continuous = continuousFromPrevious,
+        _gapKinds = gapKinds,
         markers = List.unmodifiable(markers),
         _markerActive = markerActiveMicros;
 
@@ -535,6 +537,7 @@ class GpsReplayTimeline {
       wallMicros: Int64List.sublistView(wall, 0, count),
       activeMicros: Int64List.sublistView(active, 0, count),
       continuousFromPrevious: Uint8List.sublistView(continuous, 0, count),
+      gapKinds: Uint8List.sublistView(gapKind, 0, count),
       markers: [for (final m in markers) m.marker],
       markerActiveMicros: markerActive,
     );
@@ -614,6 +617,9 @@ class GpsReplayTimeline {
   final Int64List _wall;
   final Int64List _active;
   final Uint8List _continuous;
+  // 0 = continuous, 1 = pause, 2 = impossible jump, 3 = other (per sample,
+  // describing the segment FROM the previous sample).
+  final Uint8List _gapKinds;
   final Int64List _markerActive;
 
   /// Number of usable positioned samples.
@@ -621,6 +627,85 @@ class GpsReplayTimeline {
 
   /// Whether the Journey has a `start` event, i.e. a playback axis at all.
   bool get hasTimeAxis => _hasTimeAxis;
+
+  // -------------------------------------------------------------------------
+  // Read-only geometry (Phase 1I-B0). A view of the SAME accepted samples
+  // [positionAt] interpolates; nothing is recomputed or re-filtered, and no
+  // internal array is exposed -- samples are read through index accessors.
+  // -------------------------------------------------------------------------
+
+  /// Latitude of accepted sample [index] (`0 <= index < sampleCount`).
+  /// Throws [RangeError] otherwise.
+  double latitudeAt(int index) {
+    RangeError.checkValidIndex(index, _lat, 'index', _count);
+    return _lat[index];
+  }
+
+  /// Longitude of accepted sample [index]; see [latitudeAt].
+  double longitudeAt(int index) {
+    RangeError.checkValidIndex(index, _lng, 'index', _count);
+    return _lng[index];
+  }
+
+  /// Playback time of accepted sample [index]; see [latitudeAt]. Non-
+  /// decreasing in [index]; samples recorded inside one pause share a value.
+  Duration playbackTimeAt(int index) {
+    RangeError.checkValidIndex(index, _active, 'index', _count);
+    return Duration(microseconds: _active[index]);
+  }
+
+  /// Index of the last accepted sample whose playback time is `<= playback`
+  /// (clamped into `[0, activeDuration]`), or `-1` when no sample has been
+  /// reached yet (including a Journey without samples). This is exactly the
+  /// sample [positionAt] starts from, so samples `0..index` are the ones the
+  /// replay has passed. O(log n), allocation-free.
+  int sampleIndexAt(Duration playback) {
+    final t = _clamp(playback.inMicroseconds, _breakActive.last);
+    return _upperBound(_active, _count, t) - 1;
+  }
+
+  /// The accepted samples split into continuous runs, in order. Inside one
+  /// run every consecutive pair is a segment [positionAt] interpolates; the
+  /// boundary between two runs is a GPS gap (a pause, a rejected jump or a
+  /// dropped / zero-length stretch) that must NOT be drawn as a line. The
+  /// runs partition `0..sampleCount-1`; the list is empty without samples.
+  /// Built lazily once, immutable.
+  late final List<GpsReplayRun> runs = _buildRuns();
+
+  /// Index into [runs] of the run containing sample [index] (O(log runs)).
+  /// Throws [RangeError] for an invalid sample index.
+  int runIndexOfSample(int index) {
+    RangeError.checkValidIndex(index, _lat, 'index', _count);
+    return _upperBound(_runStarts, _runStarts.length, index) - 1;
+  }
+
+  late final Int64List _runStarts = _computeRunStarts();
+
+  Int64List _computeRunStarts() {
+    final starts = <int>[];
+    for (var i = 0; i < _count; i++) {
+      if (i == 0 || _continuous[i] == 0) starts.add(i);
+    }
+    return Int64List.fromList(starts);
+  }
+
+  List<GpsReplayRun> _buildRuns() {
+    final starts = _runStarts;
+    return List.unmodifiable([
+      for (var r = 0; r < starts.length; r++)
+        GpsReplayRun._(
+          startIndex: starts[r],
+          endIndex: r + 1 < starts.length ? starts[r + 1] : _count,
+          gapBefore: r == 0 ? null : _gapKindOf(_gapKinds[starts[r]]),
+        ),
+    ]);
+  }
+
+  static GpsReplayGapKind _gapKindOf(int code) => switch (code) {
+        1 => GpsReplayGapKind.pause,
+        2 => GpsReplayGapKind.impossibleJump,
+        _ => GpsReplayGapKind.other,
+      };
 
   /// Maps a recorded (wall) instant to playback time, clamped into
   /// `[0, activeDuration]`. Recorded times inside a pause all map to the
@@ -798,6 +883,43 @@ class GpsReplayTimeline {
     final byTime = a.capturedAt.compareTo(b.capturedAt);
     return byTime != 0 ? byTime : a.id.compareTo(b.id);
   }
+}
+
+/// Why a [GpsReplayRun] does not continue the run before it.
+enum GpsReplayGapKind {
+  /// A recording pause lies between the two samples.
+  pause,
+
+  /// The segment would imply a speed above [gpsImpossibleJumpThresholdMps].
+  impossibleJump,
+
+  /// A sample was rejected in between, or the segment has zero wall /
+  /// active duration.
+  other,
+}
+
+/// A maximal stretch of accepted samples `[startIndex, endIndex)` in which
+/// every consecutive pair is continuous (interpolated by
+/// [GpsReplayTimeline.positionAt]). Draw a line through a run, never between
+/// two runs. A single-sample run is a lone point.
+class GpsReplayRun {
+  const GpsReplayRun._({
+    required this.startIndex,
+    required this.endIndex,
+    required this.gapBefore,
+  });
+
+  /// First sample index of the run.
+  final int startIndex;
+
+  /// One past the last sample index of the run.
+  final int endIndex;
+
+  /// Why the run does not continue the previous one; `null` for the first
+  /// run. The gap lies between sample `startIndex - 1` and `startIndex`.
+  final GpsReplayGapKind? gapBefore;
+
+  int get length => endIndex - startIndex;
 }
 
 /// How trustworthy a [GpsReplayPosition] is.
