@@ -12,6 +12,7 @@ import 'package:flutter_application_1/features/navigation/presentation/main_navi
 import 'package:flutter_application_1/features/personalization/personalization_screen.dart';
 import 'package:flutter_application_1/features/personalization/traveler_marker.dart';
 import 'package:flutter_application_1/features/profile/domain/user_profile.dart';
+import 'package:flutter_application_1/features/profile/providers/profile_journey_stats_provider.dart';
 import 'package:flutter_application_1/features/profile/presentation/profile_screen.dart';
 
 Future<List<int>> _pixels(TravelerMarkerStyle style, Color color) async {
@@ -316,6 +317,8 @@ void main() {
               savedCountOverride: 0,
               achievementProgressOverride: const (unlocked: 0, total: 1),
               inviteBalanceOverride: 0,
+              journeyStatsOverride: const AsyncData(
+                  ProfileJourneyStats(count: 7, confirmedDistanceMeters: 1415)),
               onDestination: (d) => destination = d,
             ),
           ),

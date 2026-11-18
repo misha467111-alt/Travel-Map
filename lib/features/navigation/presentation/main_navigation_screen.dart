@@ -15,6 +15,7 @@ import 'scalable_locations_screen.dart';
 import 'chats_screen.dart';
 import 'settings_screen.dart';
 import '../../../core/theme/app_design.dart';
+import '../../gps/presentation/gps_journey_history_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -199,6 +200,7 @@ void openSecondarySection(BuildContext context, String value) {
     'friends' => const FriendsScreen(),
     'chat' => const ChatsScreen(),
     'saved' => const SavedScreen(),
+    'journeys' => const GpsJourneyHistoryScreen(),
     'routes' =>
       const ScalableLocationsScreen(mode: ScalableLocationListMode.routes),
     'random' =>

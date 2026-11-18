@@ -12,9 +12,12 @@ import '../../gps/local/gps_local_database_provider.dart';
 import '../../navigation/presentation/main_navigation_screen.dart';
 import '../../social/providers/public_profile_provider.dart';
 import '../domain/user_profile.dart';
-import '../domain/xp_levels.dart';
 import '../providers/profile_provider.dart';
-import 'profile_components.dart';
+import '../../achievements/domain/achievement_model.dart';
+import '../../gps/presentation/gps_journey_summary_view.dart'
+    show formatGpsDistance;
+import '../providers/profile_journey_stats_provider.dart';
+import 'profile_premium_components.dart';
 import '../../../core/theme/app_design.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -49,6 +52,8 @@ class ProfileContent extends ConsumerStatefulWidget {
     this.savedCountOverride,
     this.achievementProgressOverride,
     this.inviteBalanceOverride,
+    this.unlockedAchievementsOverride,
+    this.journeyStatsOverride,
     super.key,
   });
   final UserProfile profile;
@@ -57,6 +62,10 @@ class ProfileContent extends ConsumerStatefulWidget {
   final int? savedCountOverride;
   final ({int unlocked, int total})? achievementProgressOverride;
   final int? inviteBalanceOverride;
+
+  /// Test seam: the achievements list (real data) and the Journey stats.
+  final List<AchievementModel>? unlockedAchievementsOverride;
+  final AsyncValue<ProfileJourneyStats>? journeyStatsOverride;
   @override
   ConsumerState<ProfileContent> createState() => _ProfileContentState();
 }
@@ -174,23 +183,34 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
   @override
   Widget build(BuildContext context) {
     final profile = widget.profile;
-    final nextXp = xpNextLevelThreshold(profile.xp);
     final savedState = widget.savedCountOverride == null
         ? ref.watch(savedPublicLocationsProvider)
         : null;
-    final achievementsState = widget.achievementProgressOverride == null
+    final achievementsState = widget.achievementProgressOverride == null &&
+            widget.unlockedAchievementsOverride == null
         ? ref.watch(achievementsProvider)
         : null;
     final savedCount = widget.savedCountOverride ?? savedState?.value?.length;
+    final achievementList =
+        widget.unlockedAchievementsOverride ?? achievementsState?.value;
     final achievementProgress = widget.achievementProgressOverride ??
-        (achievementsState?.value == null
+        (achievementList == null
             ? null
             : (
-                unlocked: achievementsState!.value!
-                    .where((achievement) => achievement.isUnlocked)
-                    .length,
-                total: achievementsState.value!.length,
+                unlocked: achievementList.where((a) => a.isUnlocked).length,
+                total: achievementList.length,
               ));
+    // Real, unlocked awards only, newest first; null while the list is not
+    // known (loading / error / counters-only) so nothing is invented.
+    final unlockedMedals = achievementList == null
+        ? null
+        : (achievementList.where((a) => a.isUnlocked).toList()
+          ..sort((a, b) => (b.unlockedAt ?? DateTime(0))
+              .compareTo(a.unlockedAt ?? DateTime(0))));
+    final AsyncValue<ProfileJourneyStats> journeyState =
+        widget.journeyStatsOverride ??
+            ref.watch(profileJourneyStatsProvider(profile.id));
+    final journeyTile = journeyTileText(journeyState, formatGpsDistance);
     final inviteBalance =
         widget.inviteBalanceOverride ?? profileController.invitesLeft;
     final mediaQuery = MediaQuery.of(context);
@@ -201,11 +221,14 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
       child: AbsorbPointer(
         absorbing: _busy,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
           children: [
-            ProfileIdentityHeader(
+            PremiumTravelerHero(
               name: _nameOverride ?? profile.name,
-              subtitle: profile.email,
+              email: profile.email,
+              level: profile.level,
+              xp: profile.xp,
               avatarUrl: _avatarOverride ?? profile.avatarUrl,
               onAvatarTap: _changeAvatar,
               nameAction: IconButton(
@@ -215,166 +238,101 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
               ),
             ),
             if (_busy) const LinearProgressIndicator(),
-            const SizedBox(height: 8),
-            Container(
-              key: const Key('profile_xp_progress'),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(11),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      const Icon(Icons.workspace_premium,
-                          color: AppColors.accent, size: 20),
-                      const SizedBox(width: 6),
-                      Expanded(
-                          child: Text(profile.level,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w600))),
-                      Text('${profile.xp} XP'),
-                    ]),
-                    const SizedBox(height: 6),
-                    LinearProgressIndicator(
-                      value: xpProgressWithinLevel(profile.xp),
-                      minHeight: 4,
-                      color: AppColors.accent,
-                    ),
-                    if (nextXp != null) ...[
-                      const SizedBox(height: 3),
-                      Text('${profile.xp} / $nextXp XP',
-                          style: Theme.of(context).textTheme.labelSmall),
-                    ],
-                  ]),
-            ),
-            const SizedBox(height: 8),
-            ProfileStats(items: [
-              (label: 'Локації', value: '${profile.locationsCount}'),
-              if (savedCount != null) (label: 'Закладки', value: '$savedCount'),
-              if (achievementProgress != null)
-                (label: 'Досягнення', value: '${achievementProgress.unlocked}'),
+            const SizedBox(height: AppSpacing.md),
+            PremiumStatsGrid(tiles: [
+              PremiumStatTile(
+                  icon: Icons.place_outlined,
+                  label: 'Локації',
+                  value: '${profile.locationsCount}'),
+              PremiumStatTile(
+                  icon: Icons.bookmark_outline,
+                  label: 'Закладки',
+                  value: savedCount == null ? '—' : '$savedCount'),
+              PremiumStatTile(
+                  icon: Icons.emoji_events_outlined,
+                  label: 'Досягнення',
+                  value: achievementProgress == null
+                      ? '—'
+                      : '${achievementProgress.unlocked}'),
+              PremiumStatTile(
+                  key: const Key('profile_stat_journeys'),
+                  icon: Icons.route_outlined,
+                  label: 'Подорожі',
+                  value: journeyTile.value,
+                  caption: journeyTile.caption,
+                  loading: journeyTile.loading),
             ]),
-            const SizedBox(height: 10),
-            _ProfileSection(
-                title: 'SOCIAL',
-                actions: const [
-                  ProfileAction('friends', Icons.people_outline, 'Друзі'),
-                  ProfileAction('chat', Icons.chat_bubble_outline, 'Чати'),
-                ],
-                onTap: _open),
-            _ProfileSection(
-                title: 'TRAVEL',
-                actions: const [
-                  ProfileAction('saved', Icons.bookmark_outline, 'Закладки'),
-                  ProfileAction('routes', Icons.route_outlined, 'Маршрути'),
-                ],
-                onTap: _open),
-            _ProfileSection(
-                title: 'PROGRESSION',
-                actions: [
-                  ProfileAction(
-                    'achievements',
-                    Icons.emoji_events_outlined,
-                    'Досягнення',
-                    subtitle: achievementProgress == null
-                        ? null
-                        : '${achievementProgress.unlocked} із ${achievementProgress.total}',
-                  ),
-                  ProfileAction('invites', Icons.person_add_alt, 'Інвайти',
-                      subtitle: 'Доступно: $inviteBalance'),
-                  const ProfileAction(
-                      'top', Icons.leaderboard_outlined, 'Лідерборд'),
-                ],
-                onTap: _open),
-            _ProfileSection(
-                title: 'SYSTEM',
-                actions: const [
-                  ProfileAction('personalization', Icons.palette_outlined,
-                      'Персоналізація'),
-                  ProfileAction(
-                      'settings', Icons.settings_outlined, 'Налаштування'),
-                  ProfileAction('logout', Icons.logout, 'Вийти',
-                      destructive: true),
-                ],
-                onTap: _open),
+            const SizedBox(height: AppSpacing.sm),
+            PremiumAchievementsStrip(
+              progress: achievementProgress,
+              unlocked: unlockedMedals,
+              loading: achievementsState?.isLoading == true &&
+                  achievementList == null,
+              failed: achievementsState?.hasError == true &&
+                  achievementList == null,
+              onOpenAll: () => _open('achievements'),
+            ),
+            PremiumActionCard(title: 'Спільнота', rows: [
+              PremiumActionRow(
+                  destination: 'friends',
+                  icon: Icons.people_outline,
+                  title: 'Друзі',
+                  onTap: _open),
+              PremiumActionRow(
+                  destination: 'chat',
+                  icon: Icons.chat_bubble_outline,
+                  title: 'Чати',
+                  onTap: _open),
+              PremiumActionRow(
+                  destination: 'invites',
+                  icon: Icons.person_add_alt,
+                  title: 'Інвайти',
+                  subtitle: 'Доступно: $inviteBalance',
+                  onTap: _open),
+              PremiumActionRow(
+                  destination: 'top',
+                  icon: Icons.leaderboard_outlined,
+                  title: 'Лідерборд',
+                  onTap: _open),
+            ]),
+            PremiumActionCard(title: 'Мої подорожі', rows: [
+              PremiumActionRow(
+                  destination: 'saved',
+                  icon: Icons.bookmark_outline,
+                  title: 'Закладки',
+                  onTap: _open),
+              PremiumActionRow(
+                  destination: 'routes',
+                  icon: Icons.route_outlined,
+                  title: 'Маршрути',
+                  onTap: _open),
+              PremiumActionRow(
+                  destination: 'journeys',
+                  icon: Icons.history,
+                  title: 'Історія подорожей',
+                  onTap: _open),
+            ]),
+            PremiumActionCard(title: 'Система', rows: [
+              PremiumActionRow(
+                  destination: 'personalization',
+                  icon: Icons.palette_outlined,
+                  title: 'Персоналізація',
+                  onTap: _open),
+              PremiumActionRow(
+                  destination: 'settings',
+                  icon: Icons.settings_outlined,
+                  title: 'Налаштування',
+                  onTap: _open),
+              PremiumActionRow(
+                  destination: 'logout',
+                  icon: Icons.logout,
+                  title: 'Вийти',
+                  destructive: true,
+                  onTap: _open),
+            ]),
           ],
         ),
       ),
     );
   }
-}
-
-class ProfileAction {
-  const ProfileAction(this.destination, this.icon, this.title,
-      {this.subtitle, this.destructive = false});
-  final String destination;
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final bool destructive;
-}
-
-class _ProfileSection extends StatelessWidget {
-  const _ProfileSection(
-      {required this.title, required this.actions, required this.onTap});
-  final String title;
-  final List<ProfileAction> actions;
-  final ValueChanged<String> onTap;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 4, 4, 3),
-            child: Text(title,
-                style: Theme.of(context)
-                    .textTheme
-                    .labelMedium
-                    ?.copyWith(fontSize: 11, fontWeight: FontWeight.w700)),
-          ),
-          Container(
-            decoration: const BoxDecoration(
-              border: Border.symmetric(
-                horizontal: BorderSide(color: Colors.white10),
-              ),
-            ),
-            child: Material(
-              type: MaterialType.transparency,
-              child: Column(
-                  children: actions.indexed.map((entry) {
-                final action = entry.$2;
-                return Column(children: [
-                  if (entry.$1 > 0) const Divider(indent: 38, height: 1),
-                  ListTile(
-                    dense: true,
-                    visualDensity: const VisualDensity(vertical: -4),
-                    key: Key('profile_action_${action.destination}'),
-                    minTileHeight: 40,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                    minLeadingWidth: 28,
-                    leading: Icon(action.icon,
-                        color: action.destructive ? Colors.redAccent : null),
-                    title: Text(action.title,
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: action.subtitle == null
-                        ? null
-                        : Text(action.subtitle!,
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                    trailing: action.destructive
-                        ? null
-                        : const Icon(Icons.chevron_right),
-                    onTap: () => onTap(action.destination),
-                  ),
-                ]);
-              }).toList(growable: false)),
-            ),
-          ),
-        ]),
-      );
 }

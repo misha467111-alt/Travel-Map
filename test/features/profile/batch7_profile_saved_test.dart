@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/features/map/domain/location_model.dart';
 import 'package:flutter_application_1/features/profile/domain/user_profile.dart';
+import 'package:flutter_application_1/features/profile/providers/profile_journey_stats_provider.dart';
 import 'package:flutter_application_1/features/profile/presentation/profile_screen.dart';
 import 'package:flutter_application_1/features/profile/presentation/saved_screen.dart';
 
@@ -39,6 +40,8 @@ void main() {
               savedCountOverride: 4,
               achievementProgressOverride: const (unlocked: 3, total: 8),
               inviteBalanceOverride: 2,
+              journeyStatsOverride: const AsyncData(
+                  ProfileJourneyStats(count: 7, confirmedDistanceMeters: 1415)),
               onDestination: onDestination,
               onLogout: onLogout,
             ),
@@ -91,6 +94,8 @@ void main() {
               savedCountOverride: 0,
               achievementProgressOverride: const (unlocked: 0, total: 0),
               inviteBalanceOverride: 0,
+              journeyStatsOverride: const AsyncData(
+                  ProfileJourneyStats(count: 7, confirmedDistanceMeters: 1415)),
             ),
           ),
         ),
@@ -118,30 +123,23 @@ void main() {
       onLogout: () => loggedOut = true,
     ));
 
+    final scroll = find.byType(Scrollable).first;
+    // Top-to-bottom, the order on screen (scrolling is one-directional).
     for (final destination in [
+      'achievements',
       'friends',
       'chat',
-      'saved',
-      'routes',
-      'achievements',
       'invites',
       'top',
+      'saved',
+      'routes',
+      'journeys',
+      'personalization',
       'settings',
     ]) {
       final finder = find.byKey(Key('profile_action_$destination'));
-      await tester.scrollUntilVisible(
-        finder,
-        160,
-        scrollable: find.byType(Scrollable),
-      );
-      final centerY = tester.getCenter(finder).dy;
-      if (centerY > 560) {
-        await tester.drag(find.byType(Scrollable), const Offset(0, -70));
-        await tester.pump();
-      } else if (centerY < 80) {
-        await tester.drag(find.byType(Scrollable), const Offset(0, 70));
-        await tester.pump();
-      }
+      await tester.scrollUntilVisible(finder, 160, scrollable: scroll);
+      await tester.pump();
       await tester.tap(finder);
       expect(opened, contains(destination));
       final tile = tester.widget<ListTile>(finder);
@@ -149,15 +147,8 @@ void main() {
     }
 
     final logout = find.byKey(const Key('profile_action_logout'));
-    await tester.scrollUntilVisible(
-      logout,
-      160,
-      scrollable: find.byType(Scrollable),
-    );
-    if (tester.getCenter(logout).dy > 560) {
-      await tester.drag(find.byType(Scrollable), const Offset(0, -70));
-      await tester.pump();
-    }
+    await tester.scrollUntilVisible(logout, 160, scrollable: scroll);
+    await tester.pump();
     await tester.tap(logout);
     expect(loggedOut, isTrue);
     expect(tester.widget<ListTile>(logout).trailing, isNull);
@@ -272,6 +263,8 @@ void main() {
               savedCountOverride: 4,
               achievementProgressOverride: const (unlocked: 3, total: 8),
               inviteBalanceOverride: 2,
+              journeyStatsOverride: const AsyncData(
+                  ProfileJourneyStats(count: 7, confirmedDistanceMeters: 1415)),
               onDestination: (_) {},
               onLogout: () {},
             )),
