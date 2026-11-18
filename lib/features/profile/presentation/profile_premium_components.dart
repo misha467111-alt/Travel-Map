@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_design.dart';
 import '../../achievements/domain/achievement_model.dart';
+import '../../achievements/presentation/achievement_icons.dart';
 import '../domain/xp_levels.dart';
 import '../providers/profile_journey_stats_provider.dart';
 
@@ -457,8 +458,10 @@ class PremiumAchievementsStrip extends StatelessWidget {
                     color: AppColors.accentTint(0.2),
                     border: Border.all(color: AppColors.accent, width: 1.5),
                   ),
-                  child: const Icon(Icons.emoji_events,
-                      color: AppColors.accent, size: 24),
+                  child: Icon(achievementIconFor(a.icon),
+                      key: Key('profile_medal_icon_${a.key}'),
+                      color: AppColors.accent,
+                      size: 24),
                 ),
                 const SizedBox(height: AppSpacing.xs),
                 Text(a.name,
