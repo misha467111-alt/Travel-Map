@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart' show Geolocator;
 import '../local/gps_local_database.dart';
 import '../recording/gps_journey_details.dart';
 import '../recording/gps_journey_statistics.dart';
+import '../recording/gps_track_quality.dart';
 
 /// Journey Phase 1I-A -- the pure replay foundation for ONE completed
 /// Journey: an immutable, deterministic [GpsReplayTimeline] that answers
@@ -138,6 +139,14 @@ class GpsReplayTimeline {
   /// and are not re-sorted. [now] is only the canonical calculator's
   /// fallback boundary for a Journey with no `finish` event; it is never
   /// read from the clock here.
+  ///
+  /// [confirmTrack] (Journey Phase 2.5) additionally applies the GPS
+  /// signal-quality rules of `gps_track_quality.dart`, the same ones the
+  /// statistics use: unusable-accuracy samples and samples not reachable from
+  /// the confirmed track are not replayed, and a long signal gap or an adopted
+  /// alternative chain is a discontinuity (never a line). The product loader
+  /// ([loadGpsJourneyReplay]) turns it on; the pure engine defaults to off so
+  /// it can still be fed raw, unfiltered samples.
   factory GpsReplayTimeline.build({
     required LocalRecordedRoute route,
     required List<LocalRoutePoint> points,
@@ -145,6 +154,7 @@ class GpsReplayTimeline {
     List<LocalWaypoint> moments = const [],
     List<LocalJourneyMediaItem> media = const [],
     required DateTime now,
+    bool confirmTrack = false,
   }) {
     if (route.status != RecordedRouteStatus.completed) {
       throw ArgumentError.value(route.status, 'route.status',
@@ -318,6 +328,7 @@ class GpsReplayTimeline {
     var outOfOrder = 0;
     var outsideFinish = 0;
     var futureSpikes = 0;
+    var unreliablePoints = 0;
     final n = scopedPoints.length;
     final capacity = hasAxis ? n : 0;
     final lat = Float64List(capacity);
@@ -345,6 +356,12 @@ class GpsReplayTimeline {
     }
     var count = 0;
     var brokenSinceLast = false;
+    // Journey Phase 2.5: the same signal-quality classification the
+    // statistics use decides which raw points are part of the confirmed
+    // track. The raw points stay in the database; they are only not
+    // replayed, and a jump the analysis cannot confirm is a discontinuity.
+    final quality =
+        hasAxis && confirmTrack ? analyzeGpsTrack(scopedPoints) : null;
     if (hasAxis) {
       for (var i = 0; i < n; i++) {
         final point = scopedPoints[i];
@@ -359,6 +376,14 @@ class GpsReplayTimeline {
         if (wallUs > finishUs) {
           outsideFinish++;
           brokenSinceLast = true;
+          continue;
+        }
+        if (quality != null && quality.verdicts[i] != GpsPointVerdict.trusted) {
+          // Unusable accuracy, or not reachable from the confirmed track:
+          // not replayed, and (unlike a dropped sample) it does not by
+          // itself break continuity -- the next confirmed point links to
+          // the last confirmed one, or is flagged a discontinuity below.
+          unreliablePoints++;
           continue;
         }
         if (count > 0 && wallUs < wall[count - 1]) {
@@ -403,7 +428,10 @@ class GpsReplayTimeline {
                 lng[count - 1], point.latitude, point.longitude);
             final seconds = wallDelta / Duration.microsecondsPerSecond;
             final speed = meters / seconds;
-            if (!(speed.isFinite && speed <= gpsImpossibleJumpThresholdMps)) {
+            final link = quality?.links[i];
+            if (!(speed.isFinite && speed <= gpsImpossibleJumpThresholdMps) ||
+                link == GpsLinkKind.gap ||
+                link == GpsLinkKind.discontinuity) {
               kind = 2;
             }
           }
@@ -524,6 +552,7 @@ class GpsReplayTimeline {
         excludedTombstones: tombstoned,
         pauseGapSegments: pauseGaps,
         impossibleJumpSegments: jumpGaps,
+        unreliablePoints: unreliablePoints,
         otherGapSegments: otherGaps,
         outsideFinishPoints: outsideFinish,
         futureSpikePoints: futureSpikes,
@@ -551,6 +580,7 @@ class GpsReplayTimeline {
     GpsJourneyDetails details, {
     required List<LocalRouteEvent> events,
     required DateTime now,
+    bool confirmTrack = false,
   }) =>
       GpsReplayTimeline.build(
         route: details.route,
@@ -559,6 +589,7 @@ class GpsReplayTimeline {
         moments: details.moments,
         media: details.media,
         now: now,
+        confirmTrack: confirmTrack,
       );
 
   /// Wall-clock length of the Journey (canonical `elapsed`): start -> finish,
@@ -1022,6 +1053,7 @@ class GpsReplayDiagnostics {
     required this.otherGapSegments,
     this.outsideFinishPoints = 0,
     this.futureSpikePoints = 0,
+    this.unreliablePoints = 0,
   });
 
   /// Points dropped for non-finite / out-of-range coordinates.
@@ -1041,7 +1073,9 @@ class GpsReplayDiagnostics {
   /// Segments that contain a recording pause.
   final int pauseGapSegments;
 
-  /// Segments implying a speed above [gpsImpossibleJumpThresholdMps].
+  /// Segments implying a speed above [gpsImpossibleJumpThresholdMps], or
+  /// flagged by the signal-quality rules (a long signal gap, or an adopted
+  /// alternative chain). Never drawn as a line.
   final int impossibleJumpSegments;
 
   /// Segments after a dropped sample, or with zero wall / active duration.
@@ -1055,6 +1089,11 @@ class GpsReplayDiagnostics {
   /// because strictly more later samples contradicted them (see
   /// [GpsReplayTimeline.maxSpikeRunLength]).
   final int futureSpikePoints;
+
+  /// Journey Phase 2.5 -- points left out of the replayed track because the
+  /// GPS signal-quality rules did not confirm them (unusable accuracy, or not
+  /// reachable from the confirmed track). They remain in the database.
+  final int unreliablePoints;
 
   int get discontinuousSegments =>
       pauseGapSegments + impossibleJumpSegments + otherGapSegments;
@@ -1084,5 +1123,6 @@ Future<GpsReplayTimeline?> loadGpsJourneyReplay({
   if (details == null) return null;
   final events =
       await db.getRouteEvents(ownerId: ownerId, recordedRouteId: routeId);
-  return GpsReplayTimeline.fromDetails(details, events: events, now: now);
+  return GpsReplayTimeline.fromDetails(details,
+      events: events, now: now, confirmTrack: true);
 }

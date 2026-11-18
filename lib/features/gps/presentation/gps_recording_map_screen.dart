@@ -10,6 +10,7 @@ import '../local/gps_local_database.dart';
 import '../local/gps_local_database_provider.dart';
 import '../recording/gps_recording_controller.dart';
 import '../recording/gps_recording_state.dart';
+import '../recording/gps_track_quality.dart';
 import '../sync/gps_sync_coordinator.dart';
 import 'gps_add_moment_sheet.dart';
 import 'gps_journey_details_screen.dart';
@@ -562,17 +563,23 @@ class _LiveTrackMap extends ConsumerWidget {
       );
       final points = pointsAsync.value;
       if (points != null && points.isNotEmpty) {
+        // Journey Phase 2.5: draw only the confirmed track, as separate runs
+        // -- never a straight line over a long signal gap or an unconfirmed
+        // jump. Every raw point stays stored; a single point is still drawn.
+        final runs = analyzeGpsTrack(points).trustedRuns();
         polylines = {
-          Polyline(
-            polylineId: const PolylineId('gps_live_track'),
-            points: points
-                .map((point) => LatLng(point.latitude, point.longitude))
-                .toList(growable: false),
-            color: Theme.of(context).colorScheme.primary,
-            width: 6,
-            startCap: Cap.roundCap,
-            endCap: Cap.roundCap,
-          ),
+          for (var i = 0; i < runs.length; i++)
+            Polyline(
+              polylineId:
+                  PolylineId(i == 0 ? 'gps_live_track' : 'gps_live_track_$i'),
+              points: runs[i]
+                  .map((point) => LatLng(point.latitude, point.longitude))
+                  .toList(growable: false),
+              color: Theme.of(context).colorScheme.primary,
+              width: 6,
+              startCap: Cap.roundCap,
+              endCap: Cap.roundCap,
+            ),
         };
       }
       if (showMoments) {

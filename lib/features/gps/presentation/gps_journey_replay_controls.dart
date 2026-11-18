@@ -65,7 +65,7 @@ String _speedLabel(GpsReplaySpeed speed) => switch (speed) {
 /// slider; [onScrubCancel] is also called when the pointer is cancelled (the
 /// slider is not guaranteed to report the end of a cancelled drag), so the
 /// owner can always close the scrub.
-class GpsJourneyReplayControls extends StatelessWidget {
+class GpsJourneyReplayControls extends StatefulWidget {
   const GpsJourneyReplayControls({
     super.key,
     required this.state,
@@ -86,8 +86,44 @@ class GpsJourneyReplayControls extends StatelessWidget {
   final VoidCallback onScrubCancel;
 
   @override
+  State<GpsJourneyReplayControls> createState() =>
+      _GpsJourneyReplayControlsState();
+}
+
+class _GpsJourneyReplayControlsState extends State<GpsJourneyReplayControls> {
+  // Flutter skips a child only when the very same widget instance is passed
+  // again, so the play button and the speed selector are cached and recreated
+  // only when something about them changed.
+  _PlayButton? _play;
+  _SpeedSelector? _speed;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final state = widget.state;
+    final onPlayPause = widget.onPlayPause;
+    final onSpeed = widget.onSpeed;
+    final onScrubStart = widget.onScrubStart;
+    final onScrub = widget.onScrub;
+    final onScrubEnd = widget.onScrubEnd;
+    final onScrubCancel = widget.onScrubCancel;
+    final play = _play;
+    if (play == null ||
+        play.isPlaying != state.isPlaying ||
+        play.canPlay != state.canPlay ||
+        play.onPressed != onPlayPause) {
+      _play = _PlayButton(
+        isPlaying: state.isPlaying,
+        canPlay: state.canPlay,
+        onPressed: onPlayPause,
+      );
+    }
+    final speed = _speed;
+    if (speed == null ||
+        speed.speed != state.speed ||
+        speed.onSpeed != onSpeed) {
+      _speed = _SpeedSelector(speed: state.speed, onSpeed: onSpeed);
+    }
     return Card(
       margin: const EdgeInsets.all(AppSpacing.md),
       child: Padding(
@@ -98,12 +134,7 @@ class GpsJourneyReplayControls extends StatelessWidget {
           children: [
             Row(
               children: [
-                IconButton.filled(
-                  key: const Key('gps_replay_play_pause'),
-                  tooltip: state.isPlaying ? 'Пауза' : 'Відтворити',
-                  onPressed: state.canPlay ? onPlayPause : null,
-                  icon: Icon(state.isPlaying ? Icons.pause : Icons.play_arrow),
-                ),
+                _play!,
                 const SizedBox(width: AppSpacing.sm),
                 Text(formatGpsReplayTime(state.current),
                     key: const Key('gps_replay_time_current'),
@@ -126,23 +157,60 @@ class GpsJourneyReplayControls extends StatelessWidget {
                     style: theme.textTheme.bodySmall),
               ],
             ),
-            SegmentedButton<GpsReplaySpeed>(
-              key: const Key('gps_replay_speed'),
-              showSelectedIcon: false,
-              segments: [
-                for (final speed in GpsReplaySpeed.values)
-                  ButtonSegment(
-                    value: speed,
-                    label: Text(_speedLabel(speed),
-                        key: Key('gps_replay_speed_${_speedLabel(speed)}')),
-                  ),
-              ],
-              selected: {state.speed},
-              onSelectionChanged: (s) => onSpeed(s.first),
-            ),
+            _speed!,
           ],
         ),
       ),
     );
   }
+}
+
+// While a Replay plays, only the time texts and the slider change on a
+// frame. The play button and the speed selector are separate widgets with
+// value equality, so Flutter skips rebuilding them when nothing about them
+// changed (measured on a Galaxy A50: rebuilding the whole bar on every
+// render cost about 20 ms of UI-thread build time per frame).
+@immutable
+class _PlayButton extends StatelessWidget {
+  const _PlayButton({
+    required this.isPlaying,
+    required this.canPlay,
+    required this.onPressed,
+  });
+
+  final bool isPlaying;
+  final bool canPlay;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton.filled(
+        key: const Key('gps_replay_play_pause'),
+        tooltip: isPlaying ? 'Пауза' : 'Відтворити',
+        onPressed: canPlay ? onPressed : null,
+        icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+      );
+}
+
+@immutable
+class _SpeedSelector extends StatelessWidget {
+  const _SpeedSelector({required this.speed, required this.onSpeed});
+
+  final GpsReplaySpeed speed;
+  final ValueChanged<GpsReplaySpeed> onSpeed;
+
+  @override
+  Widget build(BuildContext context) => SegmentedButton<GpsReplaySpeed>(
+        key: const Key('gps_replay_speed'),
+        showSelectedIcon: false,
+        segments: [
+          for (final value in GpsReplaySpeed.values)
+            ButtonSegment(
+              value: value,
+              label: Text(_speedLabel(value),
+                  key: Key('gps_replay_speed_${_speedLabel(value)}')),
+            ),
+        ],
+        selected: {speed},
+        onSelectionChanged: (s) => onSpeed(s.first),
+      );
 }

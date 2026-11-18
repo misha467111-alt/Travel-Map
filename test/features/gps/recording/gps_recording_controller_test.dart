@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/features/gps/local/gps_local_database.dart';
 import 'package:flutter_application_1/features/gps/recording/gps_recording_controller.dart';
 import 'package:flutter_application_1/features/gps/recording/gps_recording_state.dart';
+import 'package:flutter_application_1/features/gps/recording/gps_track_quality.dart';
 
 import '../location/fake_location_source.dart';
 import '../location/fake_notification_permission_source.dart';
@@ -984,6 +985,60 @@ void main() {
 
       expect(notifications.requestCallCount, 2);
       expect(controller.state.status, GpsRecordingStatus.recording);
+    });
+  });
+
+  group('Phase 2.5 raw points are kept, the confirmed track is derived', () {
+    test('accuracy 40 300 m and a 12 000 km jump are stored raw, one Journey',
+        () async {
+      await controller.start();
+      await settle();
+      final routeId = controller.state.routeId!;
+      var t = DateTime.utc(2026, 1, 1, 10);
+
+      void emit(double lat, double lng, {double accuracy = 5}) {
+        source.emitPosition(testPosition(
+          latitude: lat,
+          longitude: lng,
+          accuracy: accuracy,
+          speed: 1.2,
+          timestamp: t,
+        ));
+        t = t.add(const Duration(seconds: 3));
+      }
+
+      emit(50.40000, 30.5);
+      await settle();
+      emit(50.40004, 30.5);
+      await settle();
+      emit(50.40008, 30.5, accuracy: 40300); // unusable accuracy
+      await settle();
+      emit(-12.0, -77.0); // physically impossible jump
+      await settle();
+      emit(50.40012, 30.5); // signal is back: same Journey continues
+      await settle();
+
+      final points =
+          await db.getRoutePoints(ownerId: 'me', recordedRouteId: routeId);
+      // Nothing was discarded by the recorder.
+      expect(points, hasLength(5));
+      expect(controller.state.pointCount, 5);
+      expect(points[2].horizontalAccuracy, 40300);
+      expect(points[3].latitude, -12.0);
+      expect(controller.state.status, GpsRecordingStatus.recording);
+      expect(controller.state.routeId, routeId);
+
+      final analysis = analyzeGpsTrack(points);
+      expect(analysis.verdicts, [
+        GpsPointVerdict.trusted,
+        GpsPointVerdict.trusted,
+        GpsPointVerdict.lowAccuracy,
+        GpsPointVerdict.unconfirmed,
+        GpsPointVerdict.trusted,
+      ]);
+      expect(analysis.trustedRuns().single, hasLength(3));
+      expect(analysis.confirmedDistanceMeters, lessThan(30));
+      expect(analysis.confirmedDistanceMeters, greaterThan(10));
     });
   });
 }

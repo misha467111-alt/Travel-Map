@@ -412,10 +412,20 @@ class GpsJourneyReplayMap extends StatefulWidget {
     super.key,
     required this.model,
     required this.bounds,
+    this.bottomPadding = 0,
+    this.fitReady = true,
   });
 
   final GpsReplayRenderModel model;
   final LatLngBounds bounds;
+
+  /// Official `GoogleMap.padding` at the bottom: the Google logo and
+  /// attribution (and the route fit) stay above the control panel.
+  final double bottomPadding;
+
+  /// The route is fitted once this is true (after the panel is measured, so
+  /// the frame accounts for the final padding).
+  final bool fitReady;
 
   @override
   State<GpsJourneyReplayMap> createState() => _GpsJourneyReplayMapState();
@@ -447,6 +457,12 @@ class _GpsJourneyReplayMapState extends State<GpsJourneyReplayMap> {
   }
 
   @override
+  void didUpdateWidget(covariant GpsJourneyReplayMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.fitReady && !oldWidget.fitReady) _fit();
+  }
+
+  @override
   void dispose() {
     _controller?.dispose();
     super.dispose();
@@ -456,7 +472,7 @@ class _GpsJourneyReplayMapState extends State<GpsJourneyReplayMap> {
   // no size yet; the attempt is then repeated once on the first idle camera.
   Future<void> _fit() async {
     final controller = _controller;
-    if (controller == null || _fitted) return;
+    if (controller == null || _fitted || !widget.fitReady) return;
     try {
       await controller.moveCamera(_isPoint
           ? CameraUpdate.newLatLngZoom(_center, 16)
@@ -471,6 +487,7 @@ class _GpsJourneyReplayMapState extends State<GpsJourneyReplayMap> {
   Widget build(BuildContext context) => ListenableBuilder(
         listenable: widget.model,
         builder: (context, _) => GoogleMap(
+          padding: EdgeInsets.only(bottom: widget.bottomPadding),
           initialCameraPosition: CameraPosition(
             target: _center,
             zoom: _isPoint ? 16 : 13,

@@ -184,7 +184,7 @@ class GpsJourneySummaryView extends StatelessWidget {
       ('Набір висоти', formatGpsElevation(stats.elevationGainMeters)),
       ('Спуск', formatGpsElevation(stats.elevationLossMeters)),
       ('Темп', formatGpsPace(stats.paceSecondsPerKilometer)),
-      ('Точки подорожі', '${summary.momentCount}'),
+      ('Моменти', '${summary.momentCount}'),
     ];
     final hasTrack = summary.pointCount > 0;
 

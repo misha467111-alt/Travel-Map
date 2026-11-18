@@ -10,8 +10,10 @@ import '../replay/gps_replay_polyline_plan.dart';
 import '../replay/gps_replay_route_progress.dart';
 import '../replay/gps_replay_session.dart';
 import 'gps_journey_details_view.dart' show gpsJourneyDetailsProvider;
+import '../../map/presentation/map_main_controls.dart' show MeasuredHeight;
 import 'gps_journey_replay_controls.dart';
 import 'gps_journey_replay_map.dart';
+import 'gps_replay_perf_probe.dart';
 
 /// Journey Phase 1I-B1B-2 -- the Replay timeline of one completed Journey.
 ///
@@ -27,7 +29,7 @@ final gpsJourneyReplayTimelineProvider = FutureProvider.autoDispose
   final events = await db.getRouteEvents(
       ownerId: args.ownerId, recordedRouteId: args.routeId);
   return GpsReplayTimeline.fromDetails(details,
-      events: events, now: DateTime.now().toUtc());
+      events: events, now: DateTime.now().toUtc(), confirmTrack: true);
 });
 
 /// Full-screen Journey Replay. Loading, error and empty states are handled
@@ -136,6 +138,9 @@ class _GpsJourneyReplayViewState extends State<GpsJourneyReplayView>
       ValueNotifier(_controlsState());
   GpsReplayRenderModel? _model;
   Duration _lastRender = Duration.zero;
+  // Laid-out height of the control panel (null until measured).
+  double? _controlsHeight;
+  late final ReplayPerfProbe _probe = ReplayPerfProbe(label: 'screen');
 
   @override
   void initState() {
@@ -163,6 +168,7 @@ class _GpsJourneyReplayViewState extends State<GpsJourneyReplayView>
     _session.endScrub();
     _ticker.stop();
     _ticker.dispose();
+    _probe.dispose();
     _controls.dispose();
     _model?.dispose();
     super.dispose();
@@ -211,8 +217,26 @@ class _GpsJourneyReplayViewState extends State<GpsJourneyReplayView>
   // ---- rendering -----------------------------------------------------
 
   void _render() {
-    if (_session.isDirty) _apply(_session.takeUpdate());
+    final dirty = _session.isDirty;
+    final sw = Stopwatch()..start();
+    var upserted = 0, removed = 0;
+    var head = false;
+    if (dirty) {
+      final update = _session.takeUpdate();
+      final changes = _planner.apply(update);
+      upserted = changes.upserted.length;
+      removed = changes.removedIds.length;
+      head = changes.headChanged;
+      _model?.apply(changes, update.cursor);
+    }
     _publish();
+    _probe.render(
+      applyUs: sw.elapsedMicroseconds,
+      upserted: upserted,
+      removed: removed,
+      headChanged: head,
+      dirty: dirty,
+    );
   }
 
   void _apply(GpsReplayProgressUpdate update) {
@@ -280,24 +304,35 @@ class _GpsJourneyReplayViewState extends State<GpsJourneyReplayView>
             key: const Key('gps_replay_map'),
             model: model,
             bounds: bounds,
+            // Google's logo stays above the control panel; the route is fitted
+            // once the panel has been measured.
+            bottomPadding: _controlsHeight == null
+                ? 0
+                : _controlsHeight! + MediaQuery.paddingOf(context).bottom,
+            fitReady: _controlsHeight != null,
           ),
         ),
         Align(
           alignment: Alignment.bottomCenter,
           child: SafeArea(
-            child: ConstrainedBox(
-              constraints:
-                  const BoxConstraints(maxWidth: AppSizes.contentMaxWidth),
-              child: ValueListenableBuilder<GpsReplayControlsState>(
-                valueListenable: _controls,
-                builder: (context, state, _) => GpsJourneyReplayControls(
-                  state: state,
-                  onPlayPause: _onPlayPause,
-                  onSpeed: _onSpeed,
-                  onScrubStart: _onScrubStart,
-                  onScrub: _onScrub,
-                  onScrubEnd: _onScrubEnd,
-                  onScrubCancel: _onScrubEnd,
+            child: MeasuredHeight(
+              onHeight: (h) {
+                if (h != _controlsHeight) setState(() => _controlsHeight = h);
+              },
+              child: ConstrainedBox(
+                constraints:
+                    const BoxConstraints(maxWidth: AppSizes.contentMaxWidth),
+                child: ValueListenableBuilder<GpsReplayControlsState>(
+                  valueListenable: _controls,
+                  builder: (context, state, _) => GpsJourneyReplayControls(
+                    state: state,
+                    onPlayPause: _onPlayPause,
+                    onSpeed: _onSpeed,
+                    onScrubStart: _onScrubStart,
+                    onScrub: _onScrub,
+                    onScrubEnd: _onScrubEnd,
+                    onScrubCancel: _onScrubEnd,
+                  ),
                 ),
               ),
             ),

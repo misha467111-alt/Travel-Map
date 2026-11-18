@@ -1,6 +1,7 @@
 import 'package:geolocator/geolocator.dart' show Geolocator;
 
 import '../local/gps_local_database.dart';
+import 'gps_track_quality.dart';
 
 /// Journey Phase 0 -- mirrors `finalize_recorded_route(uuid)`'s own
 /// hardcoded literal (`supabase/migrations/202609140002_trips_gps_core.sql`,
@@ -27,6 +28,8 @@ class GpsJourneyStatistics {
     required this.maxSpeedMps,
     required this.elevationGainMeters,
     required this.elevationLossMeters,
+    this.excludedPointCount = 0,
+    this.trackGapCount = 0,
   });
 
   /// Sum of consecutive-point geodesic distances -- see
@@ -70,6 +73,16 @@ class GpsJourneyStatistics {
   /// Sum of the `abs()` of negative altitude deltas, same walk as
   /// [elevationGainMeters].
   final double elevationLossMeters;
+
+  /// Journey Phase 2.5 -- raw points left out of the confirmed track by the
+  /// GPS signal-quality rules (`gps_track_quality.dart`): unusable accuracy,
+  /// or not reachable from the confirmed track. The raw points themselves are
+  /// kept untouched in the database.
+  final int excludedPointCount;
+
+  /// Journey Phase 2.5 -- confirmed-track breaks (a long signal gap or an
+  /// adopted alternative chain) whose distance is not counted.
+  final int trackGapCount;
 
   /// Derived, not stored -- deliberately not a field, so there is never
   /// a second, independently-settable source of truth for pace (Phase 0's
@@ -133,6 +146,13 @@ class GpsJourneyStatistics {
 ///   - `bounding_box`/`simplified_geometry` (PostGIS geometry) are out of
 ///     scope entirely -- Phase 0 is statistics only, not geometry
 ///     generation.
+///   - Journey Phase 2.5: distance, max speed and elevation are computed over
+///     the CONFIRMED track only (`analyzeGpsTrack`): unusable-accuracy fixes,
+///     samples not reachable from the confirmed track and long signal gaps
+///     are not counted. The server's `finalize_recorded_route` still applies
+///     only its 70 m/s rule to the raw points, so a synced route's
+///     server-side `total_distance_m` can be larger than the local figure
+///     for a Journey with such samples (backend untouched by design).
 GpsJourneyStatistics calculateGpsJourneyStatistics({
   required List<LocalRoutePoint> points,
   required List<LocalRouteEvent> events,
@@ -186,6 +206,8 @@ GpsJourneyStatistics calculateGpsJourneyStatistics({
     maxSpeedMps: walk.maxSpeedMps,
     elevationGainMeters: walk.gainMeters,
     elevationLossMeters: walk.lossMeters,
+    excludedPointCount: walk.excludedPointCount,
+    trackGapCount: walk.trackGapCount,
   );
 }
 
@@ -228,48 +250,38 @@ class _PointWalkResult {
     required this.maxSpeedMps,
     required this.gainMeters,
     required this.lossMeters,
+    required this.excludedPointCount,
+    required this.trackGapCount,
   });
   final double distanceMeters;
   final double? maxSpeedMps;
   final double gainMeters;
   final double lossMeters;
+  final int excludedPointCount;
+  final int trackGapCount;
 }
 
-/// One O(points) pass computing distance (with the same impossible-jump
-/// and non-positive-duration-segment filtering as
-/// `finalize_recorded_route`), max reported speed, and elevation
-/// gain/loss together -- deliberately a single loop, not three separate
-/// ones, so this stays linear even for a many-thousand-point recording.
+/// One O(points) pass computing distance, max reported speed, and elevation
+/// gain/loss together -- deliberately a single loop over the CONFIRMED track.
+///
+/// Journey Phase 2.5: which points and segments are confirmed is decided by
+/// [analyzeGpsTrack] (accuracy, time, implied and reported speed,
+/// acceleration, long gaps -- see `gps_track_quality.dart`). Distance counts
+/// only `connected` segments, and max speed / elevation read only trusted
+/// points, so one bad fix cannot inflate any of them. Every raw point stays
+/// in the database untouched. This replaces the previous single 70 m/s
+/// segment filter (which mirrored `finalize_recorded_route`'s literal); that
+/// ceiling is still applied inside the analysis.
 _PointWalkResult _walkPoints(List<LocalRoutePoint> points) {
-  var distance = 0.0;
+  final analysis = analyzeGpsTrack(points);
   double? maxSpeed;
   var gain = 0.0;
   var loss = 0.0;
   double? previousAltitude;
-  LocalRoutePoint? previous;
 
-  for (final point in points) {
-    if (previous != null) {
-      final segmentSeconds =
-          point.recordedAt.difference(previous.recordedAt).inMicroseconds /
-              Duration.microsecondsPerSecond;
-      // Mirrors `finalize_recorded_route`: a non-positive segment
-      // duration (duplicate or out-of-order timestamps) and a segment
-      // implying a speed above the impossible-jump threshold are both
-      // excluded from the distance sum, never specially handled.
-      if (segmentSeconds > 0) {
-        final segmentDistance = Geolocator.distanceBetween(
-          previous.latitude,
-          previous.longitude,
-          point.latitude,
-          point.longitude,
-        );
-        if (segmentDistance / segmentSeconds <= gpsImpossibleJumpThresholdMps) {
-          distance += segmentDistance;
-        }
-      }
-    }
-    previous = point;
+  for (var i = 0; i < points.length; i++) {
+    if (analysis.verdicts[i] != GpsPointVerdict.trusted) continue;
+    final point = points[i];
 
     final altitude = point.altitude;
     if (altitude != null && altitude.isFinite) {
@@ -291,9 +303,11 @@ _PointWalkResult _walkPoints(List<LocalRoutePoint> points) {
   }
 
   return _PointWalkResult(
-    distanceMeters: distance,
+    distanceMeters: analysis.confirmedDistanceMeters,
     maxSpeedMps: maxSpeed,
     gainMeters: gain,
     lossMeters: loss,
+    excludedPointCount: analysis.excludedCount,
+    trackGapCount: analysis.brokenLinkCount,
   );
 }

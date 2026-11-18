@@ -110,7 +110,7 @@ void main() {
       expect(find.text('250 м'), findsOneWidget);
       expect(find.text('180 м'), findsOneWidget);
       expect(find.text('Темп'), findsOneWidget);
-      expect(find.text('Точки подорожі'), findsOneWidget);
+      expect(find.text('Моменти'), findsOneWidget);
       expect(find.text('3'), findsOneWidget);
     });
 
@@ -215,14 +215,14 @@ void main() {
           expect(button.bottom, lessThanOrEqualTo(700));
           // Last metric is reachable by scrolling.
           await tester.scrollUntilVisible(
-            find.text('Точки подорожі'),
+            find.text('Моменти'),
             200,
             scrollable: find.descendant(
               of: find.byKey(const Key('gps_summary_scroll')),
               matching: find.byType(Scrollable),
             ),
           );
-          expect(find.text('Точки подорожі'), findsOneWidget);
+          expect(find.text('Моменти'), findsOneWidget);
           expect(tester.takeException(), isNull);
         });
       }

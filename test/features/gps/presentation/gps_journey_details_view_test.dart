@@ -269,6 +269,38 @@ void main() {
       expect(find.byKey(const Key('gps_start_button')), findsNothing);
     });
 
+    _tw(
+        'Phase 2.5: the line never bridges an unconfirmed jump or an '
+        'unusable-accuracy point; raw points stay listed', (tester) async {
+      LocalRoutePoint p(int seq, double lat, double lng,
+              {double? acc = 5, double? speed = 1.5}) =>
+          LocalRoutePoint(
+            recordedRouteId: 'r1',
+            seq: seq,
+            ownerId: 'me',
+            latitude: lat,
+            longitude: lng,
+            horizontalAccuracy: acc,
+            speed: speed,
+            recordedAt: _t0.add(Duration(seconds: seq * 3)),
+          );
+      final points = [
+        p(1, 50.00000, 30.0),
+        p(2, 50.00004, 30.0),
+        p(3, 50.00008, 30.0, acc: 40300),
+        p(4, -12.0, -77.0, acc: 12), // 12 000 km away
+        p(5, 50.00012, 30.0),
+        p(6, 50.00016, 30.0),
+      ];
+      await tester.pumpWidget(_detailsApp(_details(points: points)));
+      await tester.pumpAndSettle();
+
+      final line = _map(tester).polylines.single;
+      expect(line.points.map((q) => q.latitude),
+          [50.0, 50.00004, 50.00012, 50.00016]);
+      expect(points, hasLength(6), reason: 'raw points are not removed');
+    });
+
     _tw('a single point draws no polyline but still shows the map',
         (tester) async {
       await tester.pumpWidget(
@@ -418,6 +450,20 @@ void main() {
           .pumpWidget(app(_details(points: const [], moments: const [])));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('gps_details_replay_button')), findsNothing);
+    });
+  });
+
+  group('GPS points vs Moments labels (field-test regression)', () {
+    _tw('L01 details show GPS points and Moments separately', (tester) async {
+      await tester.pumpWidget(_detailsApp(_details(
+        points: [for (var i = 1; i <= 247; i++) _point(i, 50 + i * 1e-5)],
+        moments: const [],
+      )));
+      await tester.pumpAndSettle();
+      expect(find.text('GPS-точки'), findsOneWidget);
+      expect(find.text('247'), findsOneWidget);
+      expect(find.text('Моменти'), findsOneWidget);
+      expect(find.text('Точки подорожі'), findsNothing);
     });
   });
 }

@@ -460,6 +460,9 @@ void main() {
       source.emitPosition(testPosition(
         latitude: 50.401,
         longitude: 30.501,
+        // ~132 m in 5 s: the reported speed must agree with the displacement,
+        // otherwise the signal-quality rules (Phase 2.5) rightly doubt it.
+        speed: 26,
         timestamp: DateTime.utc(2026, 1, 1, 10, 0, 5),
       ));
       await waitUntil(tester, () async {
@@ -509,6 +512,55 @@ void main() {
       expect(map(tester).polylines, isEmpty,
           reason: 'validateGpsSample already rejects this sample -- the '
               'live track must never show a point that was never accepted');
+      await disposeCleanly(tester);
+    });
+
+    testWidgets(
+        'Phase 2.5: the live line skips an unusable fix and never bridges a '
+        'physically impossible jump (raw points are still stored)',
+        (tester) async {
+      await realAwait(tester, controller.start);
+      await settle(tester);
+      await tester.pumpWidget(subject(controller.state));
+      await tester.pump();
+      await settle(tester);
+      await tester.pump();
+      final routeId = controller.state.routeId!;
+
+      var t = DateTime.utc(2026, 1, 1, 10);
+      var stored = 0;
+      Future<void> emit(double lat, double lng, {double accuracy = 5}) async {
+        source.emitPosition(testPosition(
+            latitude: lat,
+            longitude: lng,
+            accuracy: accuracy,
+            speed: 1.2,
+            timestamp: t));
+        t = t.add(const Duration(seconds: 3));
+        stored++;
+        await waitUntil(tester, () async {
+          final points =
+              await db.getRoutePoints(ownerId: 'me', recordedRouteId: routeId);
+          return points.length >= stored;
+        });
+      }
+
+      await emit(50.40000, 30.5);
+      await emit(50.40004, 30.5);
+      await emit(50.40008, 30.5, accuracy: 40300);
+      await emit(-12.0, -77.0);
+      await emit(50.40012, 30.5);
+      await tester.pump();
+
+      final line = map(tester).polylines.single;
+      expect(line.points, const [
+        LatLng(50.40000, 30.5),
+        LatLng(50.40004, 30.5),
+        LatLng(50.40012, 30.5),
+      ]);
+      final persisted = await tester.runAsync(
+          () => db.getRoutePoints(ownerId: 'me', recordedRouteId: routeId));
+      expect(persisted, hasLength(5), reason: 'raw points are never removed');
       await disposeCleanly(tester);
     });
   });

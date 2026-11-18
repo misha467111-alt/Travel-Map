@@ -94,5 +94,13 @@ void main() {
           validateGpsSample(testPosition(timestamp: DateTime(2026, 1, 1, 12)));
       expect(sample!.recordedAt.isUtc, isTrue);
     });
+
+    test('Phase 2.5: an unusable accuracy is stored raw, not rejected', () {
+      // Quality judgement happens when the track is read, never by dropping
+      // raw points at record time.
+      final sample = validateGpsSample(testPosition(accuracy: 40300));
+      expect(sample, isNotNull);
+      expect(sample!.horizontalAccuracy, 40300);
+    });
   });
 }

@@ -8,6 +8,7 @@ import '../local/gps_local_database.dart';
 import '../local/gps_local_database_provider.dart';
 import '../recording/gps_journey_details.dart';
 import '../recording/gps_journey_statistics.dart';
+import '../recording/gps_track_quality.dart';
 import 'gps_journey_history_view.dart' show formatGpsHistoryDate;
 import 'gps_journey_photos.dart';
 import 'gps_journey_replay_screen.dart';
@@ -177,6 +178,7 @@ class _DetailsContent extends StatelessWidget {
             child: _StatsCard(
               stats: details.statistics,
               momentCount: details.moments.length,
+              gpsPointCount: details.points.length,
             ),
           ),
         ),
@@ -233,7 +235,14 @@ class GpsJourneyDetailsMap extends StatelessWidget {
       );
     }
 
-    final latLngs = [for (final p in points) LatLng(p.latitude, p.longitude)];
+    // Journey Phase 2.5: only the CONFIRMED track is drawn, as separate runs
+    // -- never a straight line over a long signal gap or an unconfirmed
+    // jump. The raw points stay in the database (and in [points]).
+    final runs = [
+      for (final run in analyzeGpsTrack(points).trustedRuns())
+        [for (final p in run) LatLng(p.latitude, p.longitude)],
+    ];
+    final latLngs = [for (final run in runs) ...run];
     final reference = latLngs.isNotEmpty
         ? latLngs
         : [for (final m in moments) LatLng(m.latitude, m.longitude)];
@@ -258,14 +267,18 @@ class GpsJourneyDetailsMap extends StatelessWidget {
           polylines: latLngs.length < 2
               ? const {}
               : {
-                  Polyline(
-                    polylineId: const PolylineId('gps_journey_route'),
-                    points: latLngs,
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 6,
-                    startCap: Cap.roundCap,
-                    endCap: Cap.roundCap,
-                  ),
+                  for (var i = 0; i < runs.length; i++)
+                    if (runs[i].length >= 2)
+                      Polyline(
+                        polylineId: PolylineId(i == 0
+                            ? 'gps_journey_route'
+                            : 'gps_journey_route_$i'),
+                        points: runs[i],
+                        color: Theme.of(context).colorScheme.primary,
+                        width: 6,
+                        startCap: Cap.roundCap,
+                        endCap: Cap.roundCap,
+                      ),
                 },
           additionalMarkers: buildGpsMomentMarkers(moments),
           onLocationTap: (_) {},
@@ -278,10 +291,15 @@ class GpsJourneyDetailsMap extends StatelessWidget {
 }
 
 class _StatsCard extends StatelessWidget {
-  const _StatsCard({required this.stats, required this.momentCount});
+  const _StatsCard({
+    required this.stats,
+    required this.momentCount,
+    required this.gpsPointCount,
+  });
 
   final GpsJourneyStatistics stats;
   final int momentCount;
+  final int gpsPointCount;
 
   @override
   Widget build(BuildContext context) {
@@ -295,7 +313,8 @@ class _StatsCard extends StatelessWidget {
       ('Набір висоти', formatGpsElevation(stats.elevationGainMeters)),
       ('Спуск', formatGpsElevation(stats.elevationLossMeters)),
       ('Темп', formatGpsPace(stats.paceSecondsPerKilometer)),
-      ('Точки подорожі', '$momentCount'),
+      ('GPS-точки', '$gpsPointCount'),
+      ('Моменти', '$momentCount'),
     ];
     final theme = Theme.of(context);
     return Card(

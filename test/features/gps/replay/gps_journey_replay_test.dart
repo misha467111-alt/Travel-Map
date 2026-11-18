@@ -1773,6 +1773,7 @@ void main() {
         '../local/gps_local_database.dart',
         '../recording/gps_journey_details.dart',
         '../recording/gps_journey_statistics.dart',
+        '../recording/gps_track_quality.dart',
         'dart:typed_data',
         'package:geolocator/geolocator.dart show Geolocator',
       ]);

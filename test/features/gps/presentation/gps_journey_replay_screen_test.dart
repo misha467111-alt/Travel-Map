@@ -514,5 +514,49 @@ void main() {
       // The clock itself is not throttled: time still advanced.
       expect(_current(tester), isNot('0:00'));
     });
+
+    _tw('G04 the Google logo area is padded above the control panel',
+        (tester) async {
+      await tester.pumpWidget(_view(_walk()));
+      await tester.pump();
+      await tester.pump();
+      final panel = tester.getRect(find.byType(Card).last);
+      final padding = _map(tester).padding.bottom;
+      // The map's bottom padding covers the whole panel (with its margin).
+      expect(padding, greaterThanOrEqualTo(panel.height));
+      expect(padding, lessThan(panel.height + 40));
+      expect(tester.takeException(), isNull);
+    });
+
+    _tw('G05 playing at every speed redraws only what changed', (tester) async {
+      await tester.pumpWidget(_view(_walk()));
+      await tester.pump();
+      await tester.pump();
+      final play =
+          tester.widget(find.byKey(const Key('gps_replay_play_pause')));
+      final speed = tester.widget(find.byKey(const Key('gps_replay_speed')));
+      await tester.tap(_play());
+      await tester.pump();
+      for (final x in ['0.5x', '1x', '2x', '4x']) {
+        await tester.tap(find.byKey(Key('gps_replay_speed_$x')));
+        await tester.pump();
+        await _run(tester, 500, step: 100);
+        expect(_isPlaying(tester), isTrue, reason: x);
+      }
+      // The speed selector was rebuilt for the speed changes only; while
+      // playing at one speed the same widget instance is reused.
+      final sel = tester.widget(find.byKey(const Key('gps_replay_speed')));
+      await _run(tester, 400, step: 100);
+      expect(
+          identical(
+              sel, tester.widget(find.byKey(const Key('gps_replay_speed')))),
+          isTrue);
+      expect(
+          identical(play,
+              tester.widget(find.byKey(const Key('gps_replay_play_pause')))),
+          isFalse,
+          reason: 'the play button changed to pause');
+      expect(speed, isNotNull);
+    });
   });
 }

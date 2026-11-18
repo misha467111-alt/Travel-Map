@@ -33,11 +33,11 @@ LocalRecordedRoute _route(
     );
 
 GpsJourneySummary _summary(String id,
-        {int moments = 2, double meters = 5400}) =>
+        {int moments = 2, double meters = 5400, int points = 20}) =>
     GpsJourneySummary(
       routeId: id,
       momentCount: moments,
-      pointCount: 20,
+      pointCount: points,
       statistics: GpsJourneyStatistics(
         totalDistanceMeters: meters,
         elapsed: const Duration(hours: 1),
@@ -131,7 +131,8 @@ void main() {
 
     expect(find.text(formatGpsDistance(12345)), findsOneWidget);
     expect(find.text('1 год 0 хв'), findsOneWidget);
-    expect(find.text('Точки: 7'), findsOneWidget);
+    expect(find.text('Моменти: 7'), findsOneWidget);
+    expect(find.text('GPS-точки: 20'), findsOneWidget);
     expect(find.textContaining('NaN'), findsNothing);
   });
 
@@ -250,5 +251,19 @@ void main() {
         });
       }
     }
+  });
+
+  testWidgets(
+      'the card shows 247 GPS points and 0 Moments as two separate '
+      'counts (field-test regression)', (tester) async {
+    await tester.pumpWidget(_app(
+      Stream.value([_route('a')]),
+      summary: (id) async =>
+          _summary(id, moments: 0, meters: 1350, points: 247),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('GPS-точки: 247'), findsOneWidget);
+    expect(find.text('Моменти: 0'), findsOneWidget);
+    expect(find.text('Точки: 0'), findsNothing);
   });
 }

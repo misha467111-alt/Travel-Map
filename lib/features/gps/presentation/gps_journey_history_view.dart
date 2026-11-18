@@ -172,9 +172,14 @@ class GpsJourneyHistoryCard extends ConsumerWidget {
                     _Metric(
                         icon: Icons.timer_outlined,
                         text: formatGpsDuration(summary.statistics.elapsed)),
+                    // Real GPS samples and the user's Moments are different
+                    // things and are labelled as such.
+                    _Metric(
+                        icon: Icons.gps_fixed,
+                        text: 'GPS-точки: ${summary.pointCount}'),
                     _Metric(
                         icon: Icons.place_outlined,
-                        text: 'Точки: ${summary.momentCount}'),
+                        text: 'Моменти: ${summary.momentCount}'),
                   ],
                 ),
               ],
