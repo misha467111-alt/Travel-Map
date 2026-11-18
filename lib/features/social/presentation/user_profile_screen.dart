@@ -3,7 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../map/presentation/location_card.dart';
 import '../../map/presentation/map_screen.dart';
-import '../../profile/presentation/profile_components.dart';
+import '../../../core/theme/app_design.dart';
+import '../../profile/presentation/traveler_profile_header.dart';
 import '../domain/public_profile.dart';
 import '../providers/public_profile_provider.dart';
 
@@ -95,38 +96,48 @@ class _ProfileContent extends ConsumerWidget {
     final saved = savedState.value ?? const {};
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.xxl),
       children: [
-        ProfileIdentityHeader(
+        TravelerProfileHeader(
           name: profile.name,
-          subtitle: '${profile.level} · ${profile.xp} XP',
+          level: profile.level,
+          xp: profile.xp,
           avatarUrl: profile.avatarUrl,
-        ),
-        const SizedBox(height: 16),
-        ProfileStats(
-          items: [
-            (label: 'Підписники', value: '${profile.followersCount}'),
-            (label: 'Підписки', value: '${profile.followingCount}'),
+          counters: [
+            TravelerCounter(
+                keyName: 'locations',
+                label: 'Локації',
+                value: profile.locationsCount),
+            TravelerCounter(
+                keyName: 'followers',
+                label: 'Стежать',
+                value: profile.followersCount),
+            TravelerCounter(
+                keyName: 'following',
+                label: 'Стежу',
+                value: profile.followingCount),
           ],
+          // No follow button on one's own profile.
+          action: profile.isSelf
+              ? null
+              : profile.isFollowing
+                  ? OutlinedButton.icon(
+                      key: const Key('profile_unfollow_button'),
+                      onPressed:
+                          changingFollow ? null : () => onFollowChanged(false),
+                      icon: const Icon(Icons.check),
+                      label: const Text('Стежу'),
+                    )
+                  : FilledButton.icon(
+                      key: const Key('profile_follow_button'),
+                      onPressed:
+                          changingFollow ? null : () => onFollowChanged(true),
+                      icon: const Icon(Icons.person_add_outlined),
+                      label: const Text('Стежити'),
+                    ),
         ),
-        const SizedBox(height: 20),
-        SizedBox(
-          width: double.infinity,
-          child: profile.isFollowing
-              ? OutlinedButton.icon(
-                  onPressed:
-                      changingFollow ? null : () => onFollowChanged(false),
-                  icon: const Icon(Icons.person_remove_outlined),
-                  label: const Text('Відписатися'),
-                )
-              : FilledButton.icon(
-                  onPressed:
-                      changingFollow ? null : () => onFollowChanged(true),
-                  icon: const Icon(Icons.person_add_outlined),
-                  label: const Text('Підписатися'),
-                ),
-        ),
-        const SizedBox(height: 28),
+        const SizedBox(height: AppSpacing.xl),
         Text(
           'Публічні локації',
           style: Theme.of(context).textTheme.titleLarge,

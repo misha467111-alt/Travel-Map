@@ -12,6 +12,7 @@ import 'package:flutter_application_1/features/navigation/presentation/main_navi
 import 'package:flutter_application_1/features/personalization/personalization_screen.dart';
 import 'package:flutter_application_1/features/personalization/traveler_marker.dart';
 import 'package:flutter_application_1/features/profile/domain/user_profile.dart';
+import 'package:flutter_application_1/features/social/domain/public_profile.dart';
 import 'package:flutter_application_1/features/profile/providers/profile_journey_stats_provider.dart';
 import 'package:flutter_application_1/features/profile/presentation/profile_screen.dart';
 
@@ -317,6 +318,8 @@ void main() {
               savedCountOverride: 0,
               achievementProgressOverride: const (unlocked: 0, total: 1),
               inviteBalanceOverride: 0,
+              followCountsOverride:
+                  const AsyncData(FollowCounts(followers: 3, following: 5)),
               journeyStatsOverride: const AsyncData(
                   ProfileJourneyStats(count: 7, confirmedDistanceMeters: 1415)),
               onDestination: (d) => destination = d,
@@ -328,6 +331,8 @@ void main() {
       await tester.scrollUntilVisible(entry, 160,
           scrollable: find.byType(Scrollable));
       expect(find.text('Персоналізація'), findsOneWidget);
+      await tester.ensureVisible(entry);
+      await tester.pump();
       await tester.tap(entry);
       expect(destination, 'personalization');
     });

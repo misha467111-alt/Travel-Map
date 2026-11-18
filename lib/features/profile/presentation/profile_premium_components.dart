@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_design.dart';
 import '../../achievements/domain/achievement_model.dart';
 import '../../achievements/presentation/achievement_icons.dart';
-import '../domain/xp_levels.dart';
 import '../providers/profile_journey_stats_provider.dart';
 
 /// Phase 3.1 -- Premium Forest building blocks of the traveler profile.
@@ -17,191 +16,6 @@ BoxDecoration _cardDecoration({Color? color, Color? border}) => BoxDecoration(
       borderRadius: BorderRadius.circular(AppRadii.lg),
       border: Border.all(color: border ?? AppColors.border),
     );
-
-/// The traveler card: avatar with a gold ring, name, e-mail, level and the XP
-/// progress. [nameAction] / [onAvatarTap] keep the existing edit behaviour.
-class PremiumTravelerHero extends StatelessWidget {
-  const PremiumTravelerHero({
-    required this.name,
-    required this.email,
-    required this.level,
-    required this.xp,
-    this.avatarUrl,
-    this.onAvatarTap,
-    this.nameAction,
-    super.key,
-  });
-
-  final String name;
-  final String email;
-  final String level;
-  final int xp;
-  final String? avatarUrl;
-  final VoidCallback? onAvatarTap;
-  final Widget? nameAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final nextXp = xpNextLevelThreshold(xp);
-    final tier = xpLevelTier(xp);
-    final hasAvatar = avatarUrl?.isNotEmpty == true;
-    return Container(
-      decoration: _cardDecoration(
-        color: AppColors.elevated,
-        border: AppColors.accent.withValues(alpha: 0.45),
-      ),
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Stack(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.accent, width: 2),
-                    ),
-                    child: CircleAvatar(
-                      key: const Key('profile_avatar'),
-                      radius: 34,
-                      backgroundColor: AppColors.surface,
-                      backgroundImage:
-                          hasAvatar ? NetworkImage(avatarUrl!) : null,
-                      child: hasAvatar
-                          ? null
-                          : const Icon(Icons.person,
-                              key: Key('profile_avatar_fallback'),
-                              size: 34,
-                              color: AppColors.accent),
-                    ),
-                  ),
-                  if (onAvatarTap != null)
-                    Positioned(
-                      right: 0,
-                      bottom: 0,
-                      child: Material(
-                        color: AppColors.accent,
-                        shape: const CircleBorder(),
-                        child: IconButton(
-                          tooltip: 'Змінити аватар',
-                          onPressed: onAvatarTap,
-                          icon: const Icon(Icons.camera_alt,
-                              color: AppColors.onAccent),
-                          iconSize: 15,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(
-                              width: 28, height: 28),
-                          style: IconButton.styleFrom(
-                            minimumSize: const Size.square(28),
-                            maximumSize: const Size.square(28),
-                            padding: EdgeInsets.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(children: [
-                      Expanded(
-                        child: Text(
-                          name,
-                          key: const Key('profile_display_name'),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              theme.textTheme.titleLarge?.copyWith(height: 1.1),
-                        ),
-                      ),
-                      if (nameAction != null) nameAction!,
-                    ]),
-                    if (email.isNotEmpty)
-                      Text(
-                        email,
-                        key: const Key('profile_subtitle'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Container(
-            key: const Key('profile_xp_progress'),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: AppColors.accentTint(0.18),
-                      borderRadius: BorderRadius.circular(AppRadii.pill),
-                      border: Border.all(
-                          color: AppColors.accent.withValues(alpha: 0.5)),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.workspace_premium,
-                          color: AppColors.accent, size: 16),
-                      const SizedBox(width: 4),
-                      Text('Рівень $tier',
-                          style: theme.textTheme.labelMedium?.copyWith(
-                              color: AppColors.accent,
-                              fontWeight: FontWeight.w600)),
-                    ]),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(level,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall),
-                  ),
-                  Text('$xp XP',
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(color: AppColors.accent)),
-                ]),
-                const SizedBox(height: AppSpacing.sm),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadii.pill),
-                  child: LinearProgressIndicator(
-                    value: xpProgressWithinLevel(xp),
-                    minHeight: 10,
-                    color: AppColors.accent,
-                    backgroundColor: AppColors.border,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                if (nextXp != null) ...[
-                  Text('$xp / $nextXp XP', style: theme.textTheme.labelMedium),
-                  Text('До наступного рівня: ${nextXp - xp} XP',
-                      style: theme.textTheme.labelSmall),
-                ] else
-                  Text('Максимальний рівень досягнуто',
-                      style: theme.textTheme.labelMedium
-                          ?.copyWith(color: AppColors.accent)),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 /// One statistic tile. [value] is already a display string; [caption] is an
 /// optional second line (e.g. the confirmed distance).
@@ -266,7 +80,7 @@ class PremiumStatTile extends StatelessWidget {
   }
 }
 
-/// 2x2 grid of [PremiumStatTile]s (equal-height rows, no fixed heights, so a
+/// Two-column grid of [PremiumStatTile]s (equal-height rows, no fixed heights, so a
 /// larger system font only makes the tiles taller).
 class PremiumStatsGrid extends StatelessWidget {
   const PremiumStatsGrid({required this.tiles, super.key});
@@ -277,14 +91,19 @@ class PremiumStatsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final rows = <Widget>[];
     for (var i = 0; i < tiles.length; i += 2) {
-      rows.add(IntrinsicHeight(
-        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Expanded(child: tiles[i]),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-              child: i + 1 < tiles.length ? tiles[i + 1] : const SizedBox()),
-        ]),
-      ));
+      final last = i + 1 >= tiles.length;
+      // An odd last tile spans the full width instead of leaving a gap.
+      rows.add(last
+          ? tiles[i]
+          : IntrinsicHeight(
+              child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: tiles[i]),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(child: tiles[i + 1]),
+                  ]),
+            ));
       if (i + 2 < tiles.length) rows.add(const SizedBox(height: AppSpacing.sm));
     }
     return Column(children: rows);

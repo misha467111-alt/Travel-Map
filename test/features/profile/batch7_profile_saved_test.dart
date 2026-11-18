@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/features/map/domain/location_model.dart';
 import 'package:flutter_application_1/features/profile/domain/user_profile.dart';
+import 'package:flutter_application_1/features/social/domain/public_profile.dart';
 import 'package:flutter_application_1/features/profile/providers/profile_journey_stats_provider.dart';
 import 'package:flutter_application_1/features/profile/presentation/profile_screen.dart';
 import 'package:flutter_application_1/features/profile/presentation/saved_screen.dart';
@@ -40,6 +41,8 @@ void main() {
               savedCountOverride: 4,
               achievementProgressOverride: const (unlocked: 3, total: 8),
               inviteBalanceOverride: 2,
+              followCountsOverride:
+                  const AsyncData(FollowCounts(followers: 21, following: 34)),
               journeyStatsOverride: const AsyncData(
                   ProfileJourneyStats(count: 7, confirmedDistanceMeters: 1415)),
               onDestination: onDestination,
@@ -94,6 +97,8 @@ void main() {
               savedCountOverride: 0,
               achievementProgressOverride: const (unlocked: 0, total: 0),
               inviteBalanceOverride: 0,
+              followCountsOverride:
+                  const AsyncData(FollowCounts(followers: 21, following: 34)),
               journeyStatsOverride: const AsyncData(
                   ProfileJourneyStats(count: 7, confirmedDistanceMeters: 1415)),
             ),
@@ -263,6 +268,8 @@ void main() {
               savedCountOverride: 4,
               achievementProgressOverride: const (unlocked: 3, total: 8),
               inviteBalanceOverride: 2,
+              followCountsOverride:
+                  const AsyncData(FollowCounts(followers: 21, following: 34)),
               journeyStatsOverride: const AsyncData(
                   ProfileJourneyStats(count: 7, confirmedDistanceMeters: 1415)),
               onDestination: (_) {},

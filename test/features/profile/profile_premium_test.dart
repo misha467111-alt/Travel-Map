@@ -11,6 +11,7 @@ import 'package:flutter_application_1/features/achievements/providers/achievemen
 import 'package:flutter_application_1/features/gps/local/gps_local_database.dart';
 import 'package:flutter_application_1/features/gps/local/gps_local_database_provider.dart';
 import 'package:flutter_application_1/features/profile/domain/user_profile.dart';
+import 'package:flutter_application_1/features/social/domain/public_profile.dart';
 import 'package:flutter_application_1/features/profile/presentation/profile_screen.dart';
 import 'package:flutter_application_1/features/profile/providers/profile_journey_stats_provider.dart';
 
@@ -63,6 +64,8 @@ void main() {
                 achievementProgressOverride: progress,
                 unlockedAchievementsOverride: achievements,
                 inviteBalanceOverride: 2,
+                followCountsOverride:
+                    const AsyncData(FollowCounts(followers: 21, following: 34)),
                 journeyStatsOverride: journeys,
                 onDestination: onDestination,
                 onLogout: () {},
@@ -114,26 +117,24 @@ void main() {
   });
 
   group('stats grid', () {
-    testWidgets('2x2: Locations, Bookmarks, Achievements, Journeys',
+    testWidgets('Bookmarks and Achievements share a row; Journeys below',
         (tester) async {
       await tester.pumpWidget(subject());
 
-      for (final label in ['Локації', 'Закладки', 'Досягнення', 'Подорожі']) {
-        expect(find.text(label), findsWidgets);
-      }
       final journeys = find.byKey(const Key('profile_stat_journeys'));
       expect(find.descendant(of: journeys, matching: find.text('2')),
           findsOneWidget);
       expect(find.descendant(of: journeys, matching: find.text('1.50 км')),
           findsOneWidget);
-      // 2x2: the first two and last two tiles share a row each.
       final y = [
-        for (final l in ['Локації', 'Закладки', 'Досягнення', 'Подорожі'])
+        for (final l in ['Закладки', 'Досягнення', 'Подорожі'])
           tester.getTopLeft(find.text(l).first).dy
       ];
       expect(y[0], y[1]);
-      expect(y[2], y[3]);
       expect(y[2], greaterThan(y[0]));
+      // Locations moved to the header counters, with Стежать / Стежу.
+      expect(
+          find.byKey(const Key('profile_counter_locations')), findsOneWidget);
     });
 
     testWidgets('Journey tile: loading, empty and error never invent data',
@@ -160,7 +161,6 @@ void main() {
       expect(find.text('Недоступно'), findsOneWidget);
       // The rest of the profile is unaffected.
       expect(find.text('Мандрівник Іван'), findsOneWidget);
-      expect(find.text('Спільнота'), findsOneWidget);
     });
   });
 
@@ -212,7 +212,6 @@ void main() {
       expect(
           find.byKey(const Key('profile_achievements_error')), findsOneWidget);
       expect(find.text('Усі досягнення'), findsOneWidget);
-      expect(find.text('Спільнота'), findsOneWidget);
 
       final never = Completer<List<AchievementModel>>();
       await tester.pumpWidget(subject(

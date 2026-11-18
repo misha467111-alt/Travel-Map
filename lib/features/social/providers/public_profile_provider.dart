@@ -61,6 +61,10 @@ class SocialRepository {
       avatarUrl: profile['avatar_url'] as String?,
       xp: (profile['xp'] as num? ?? 0).toInt(),
       level: profile['level'] as String? ?? 'Новачок',
+      locationsCount: locationRows.length < 30
+          ? locationRows.length
+          : await _publicLocationsCount(userId),
+      isSelf: userId == _currentUserId,
       followersCount: followers.length,
       followingCount: following.length,
       isFollowing: ownFollow.isNotEmpty,
@@ -68,6 +72,36 @@ class SocialRepository {
           .map((row) => LocationModel.fromMap(row))
           .toList(growable: false),
     );
+  }
+
+  Future<int?> _publicLocationsCount(String userId) async {
+    try {
+      final result = await _supabase
+          .from('locations')
+          .select('id')
+          .eq('owner_id', userId)
+          .eq('status', 'approved')
+          .eq('visibility', 'public')
+          .count(CountOption.exact);
+      return result.count;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Cheap follower/following totals (counts only, no rows).
+  Future<FollowCounts> fetchFollowCounts(String userId) async {
+    final followers = await _supabase
+        .from('follows')
+        .select('follower_id')
+        .eq('following_id', userId)
+        .count(CountOption.exact);
+    final following = await _supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', userId)
+        .count(CountOption.exact);
+    return FollowCounts(followers: followers.count, following: following.count);
   }
 
   Future<void> follow(String userId) async {
@@ -95,6 +129,11 @@ final socialRepositoryProvider = Provider<SocialRepository>((ref) {
 final publicProfileProvider =
     FutureProvider.autoDispose.family<PublicProfile, String>((ref, userId) {
   return ref.watch(socialRepositoryProvider).fetchPublicProfile(userId);
+});
+
+final followCountsProvider =
+    FutureProvider.autoDispose.family<FollowCounts, String>((ref, userId) {
+  return ref.watch(socialRepositoryProvider).fetchFollowCounts(userId);
 });
 
 class FollowController {

@@ -17,7 +17,9 @@ import '../../achievements/domain/achievement_model.dart';
 import '../../gps/presentation/gps_journey_summary_view.dart'
     show formatGpsDistance;
 import '../providers/profile_journey_stats_provider.dart';
+import '../../social/domain/public_profile.dart';
 import 'profile_premium_components.dart';
+import 'traveler_profile_header.dart';
 import '../../../core/theme/app_design.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -54,6 +56,7 @@ class ProfileContent extends ConsumerStatefulWidget {
     this.inviteBalanceOverride,
     this.unlockedAchievementsOverride,
     this.journeyStatsOverride,
+    this.followCountsOverride,
     super.key,
   });
   final UserProfile profile;
@@ -66,6 +69,7 @@ class ProfileContent extends ConsumerStatefulWidget {
   /// Test seam: the achievements list (real data) and the Journey stats.
   final List<AchievementModel>? unlockedAchievementsOverride;
   final AsyncValue<ProfileJourneyStats>? journeyStatsOverride;
+  final AsyncValue<FollowCounts>? followCountsOverride;
   @override
   ConsumerState<ProfileContent> createState() => _ProfileContentState();
 }
@@ -211,6 +215,8 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
         widget.journeyStatsOverride ??
             ref.watch(profileJourneyStatsProvider(profile.id));
     final journeyTile = journeyTileText(journeyState, formatGpsDistance);
+    final AsyncValue<FollowCounts> followCounts = widget.followCountsOverride ??
+        ref.watch(followCountsProvider(profile.id));
     final inviteBalance =
         widget.inviteBalanceOverride ?? profileController.invitesLeft;
     final mediaQuery = MediaQuery.of(context);
@@ -224,9 +230,9 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
           padding: const EdgeInsets.fromLTRB(
               AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xxl),
           children: [
-            PremiumTravelerHero(
+            TravelerProfileHeader(
               name: _nameOverride ?? profile.name,
-              email: profile.email,
+              subtitle: profile.email,
               level: profile.level,
               xp: profile.xp,
               avatarUrl: _avatarOverride ?? profile.avatarUrl,
@@ -236,14 +242,26 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
                 onPressed: _changeName,
                 icon: const Icon(Icons.edit_outlined),
               ),
+              counters: [
+                TravelerCounter(
+                    keyName: 'locations',
+                    label: 'Локації',
+                    value: profile.locationsCount),
+                TravelerCounter(
+                    keyName: 'followers',
+                    label: 'Стежать',
+                    value: followCounts.value?.followers,
+                    loading: followCounts.isLoading),
+                TravelerCounter(
+                    keyName: 'following',
+                    label: 'Стежу',
+                    value: followCounts.value?.following,
+                    loading: followCounts.isLoading),
+              ],
             ),
             if (_busy) const LinearProgressIndicator(),
             const SizedBox(height: AppSpacing.md),
             PremiumStatsGrid(tiles: [
-              PremiumStatTile(
-                  icon: Icons.place_outlined,
-                  label: 'Локації',
-                  value: '${profile.locationsCount}'),
               PremiumStatTile(
                   icon: Icons.bookmark_outline,
                   label: 'Закладки',

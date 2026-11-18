@@ -10,6 +10,7 @@ import 'package:flutter_application_1/features/achievements/presentation/achieve
 import 'package:flutter_application_1/features/achievements/presentation/achievements_tab.dart';
 import 'package:flutter_application_1/features/achievements/providers/achievements_provider.dart';
 import 'package:flutter_application_1/features/profile/domain/user_profile.dart';
+import 'package:flutter_application_1/features/social/domain/public_profile.dart';
 import 'package:flutter_application_1/features/profile/presentation/profile_screen.dart';
 import 'package:flutter_application_1/features/profile/providers/profile_journey_stats_provider.dart';
 
@@ -208,6 +209,8 @@ void main() {
                 locationsCount: 1),
             savedCountOverride: 0,
             inviteBalanceOverride: 0,
+            followCountsOverride:
+                const AsyncData(FollowCounts(followers: 3, following: 5)),
             journeyStatsOverride: const AsyncData(
                 ProfileJourneyStats(count: 0, confirmedDistanceMeters: 0)),
             onLogout: () {},
@@ -233,6 +236,9 @@ void main() {
     await tester.scrollUntilVisible(
         find.byKey(const Key('profile_action_achievements')), 200,
         scrollable: find.byType(Scrollable).first);
+    await tester
+        .ensureVisible(find.byKey(const Key('profile_action_achievements')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('profile_action_achievements')));
     await tester.pumpAndSettle();
 
