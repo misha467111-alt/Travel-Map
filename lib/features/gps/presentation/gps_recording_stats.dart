@@ -131,9 +131,13 @@ class GpsRecordingStats extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Hierarchy: elapsed time is the primary readout (large, gold); GPS
+    // accuracy and the point count are secondary.
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
+          flex: 3,
           child: _StatTile(
             label: 'Тривалість',
             value: GpsElapsedTimeText(
@@ -141,11 +145,16 @@ class GpsRecordingStats extends StatelessWidget {
               startedAt: stats.startedAt,
               isTicking: isTicking,
               now: now,
-              style: theme.textTheme.titleMedium,
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.primary,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
           ),
         ),
         Expanded(
+          flex: 2,
           child: _StatTile(
             label: 'Точок',
             value: Text(
@@ -156,6 +165,7 @@ class GpsRecordingStats extends StatelessWidget {
           ),
         ),
         Expanded(
+          flex: 2,
           child: _StatTile(
             label: 'Точність',
             value: Text(

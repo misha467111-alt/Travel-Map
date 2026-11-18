@@ -15,6 +15,7 @@ import '../domain/user_profile.dart';
 import '../domain/xp_levels.dart';
 import '../providers/profile_provider.dart';
 import 'profile_components.dart';
+import '../../../core/theme/app_design.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -219,7 +220,7 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
               key: const Key('profile_xp_progress'),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF14231D),
+                color: AppColors.surface,
                 borderRadius: BorderRadius.circular(11),
                 border: Border.all(color: Colors.white10),
               ),
@@ -228,7 +229,7 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
                   children: [
                     Row(children: [
                       const Icon(Icons.workspace_premium,
-                          color: Color(0xFFD4A017), size: 20),
+                          color: AppColors.accent, size: 20),
                       const SizedBox(width: 6),
                       Expanded(
                           child: Text(profile.level,
@@ -242,7 +243,7 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
                     LinearProgressIndicator(
                       value: xpProgressWithinLevel(profile.xp),
                       minHeight: 4,
-                      color: const Color(0xFFD4A017),
+                      color: AppColors.accent,
                     ),
                     if (nextXp != null) ...[
                       const SizedBox(height: 3),
@@ -293,6 +294,8 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
             _ProfileSection(
                 title: 'SYSTEM',
                 actions: const [
+                  ProfileAction('personalization', Icons.palette_outlined,
+                      'Персоналізація'),
                   ProfileAction(
                       'settings', Icons.settings_outlined, 'Налаштування'),
                   ProfileAction('logout', Icons.logout, 'Вийти',

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/notification_model.dart';
 import '../providers/notifications_provider.dart';
+import '../../../core/theme/app_design.dart';
 
 class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
@@ -138,7 +139,7 @@ class _EmptyNotifications extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.notifications_none, size: 48, color: Color(0xFFD4A017)),
+            Icon(Icons.notifications_none, size: 48, color: AppColors.accent),
             SizedBox(height: 12),
             Text('Нових сповіщень поки немає', style: TextStyle(fontSize: 15)),
             SizedBox(height: 4),

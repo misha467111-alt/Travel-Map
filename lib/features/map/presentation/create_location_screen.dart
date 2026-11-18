@@ -746,7 +746,7 @@ class _CompactSelectorRow extends StatelessWidget {
           vertical: AppSpacing.md,
         ),
         decoration: BoxDecoration(
-          color: const Color(0xFF14231D),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(AppRadii.md),
           border: Border.all(color: Colors.white10),
         ),
@@ -786,8 +786,8 @@ class _CategoryGrid extends StatelessWidget {
 
   // Same tile treatment as MapCategoriesSheet, so category presentation
   // stays visually consistent across the app.
-  static const _tileBackground = Color(0xFF10221B);
-  static const _tileBorder = Color(0xFF294037);
+  static const _tileBackground = AppColors.surface;
+  static const _tileBorder = AppColors.border;
 
   @override
   Widget build(BuildContext context) {
@@ -843,7 +843,7 @@ class _CategoryGrid extends StatelessWidget {
                         height: 1.05,
                         fontSize: 9,
                         fontWeight: FontWeight.w500,
-                        color: Color(0xFFF5F0E6),
+                        color: AppColors.textPrimary,
                       ),
                     ),
                   ),
@@ -882,13 +882,13 @@ class _LocationCard extends StatelessWidget {
         vertical: AppSpacing.md,
       ),
       decoration: BoxDecoration(
-        color: const Color(0xFF14231D),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadii.md),
         border: Border.all(color: Colors.white10),
       ),
       child: Row(
         children: [
-          const Icon(Icons.place_outlined, color: Color(0xFFD4A017)),
+          const Icon(Icons.place_outlined, color: AppColors.accent),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(

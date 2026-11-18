@@ -81,6 +81,7 @@ class GpsJourneySummaryPanel extends ConsumerWidget {
     required this.onDone,
     this.sync,
     this.onRetrySync,
+    this.onOpenDetails,
   });
 
   final String ownerId;
@@ -88,6 +89,7 @@ class GpsJourneySummaryPanel extends ConsumerWidget {
   final VoidCallback onDone;
   final GpsSyncUiState? sync;
   final VoidCallback? onRetrySync;
+  final VoidCallback? onOpenDetails;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -110,6 +112,7 @@ class GpsJourneySummaryPanel extends ConsumerWidget {
               onDone: onDone,
               sync: sync,
               onRetrySync: onRetrySync,
+              onOpenDetails: onOpenDetails,
             ),
     );
   }
@@ -142,8 +145,13 @@ class _SummaryMessage extends StatelessWidget {
   }
 }
 
-/// The structural Summary surface: a scrolling metric list with the exit
-/// action pinned below it, so the action stays reachable at any text scale.
+/// The Summary surface: a success hero, the two primary metrics (distance and
+/// total time), a compact list of secondary metrics, the synchronization
+/// state in its own section, and the exit actions pinned below the scrolling
+/// content so they stay reachable at any text scale.
+///
+/// Honest by construction: the hero never claims recorded GPS samples when
+/// [GpsJourneySummary.pointCount] is zero; unavailable metrics show `—`.
 class GpsJourneySummaryView extends StatelessWidget {
   const GpsJourneySummaryView({
     super.key,
@@ -151,6 +159,7 @@ class GpsJourneySummaryView extends StatelessWidget {
     required this.onDone,
     this.sync,
     this.onRetrySync,
+    this.onOpenDetails,
   });
 
   final GpsJourneySummary summary;
@@ -158,13 +167,16 @@ class GpsJourneySummaryView extends StatelessWidget {
   final GpsSyncUiState? sync;
   final VoidCallback? onRetrySync;
 
+  /// Opens the saved Journey's Details; the button is shown only when set.
+  final VoidCallback? onOpenDetails;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final GpsJourneyStatistics stats = summary.statistics;
-    final metrics = <(String, String)>[
-      ('Відстань', formatGpsDistance(stats.totalDistanceMeters)),
-      ('Загальний час', formatGpsDuration(stats.elapsed)),
+    // Distance and total time are the primary metrics (shown once, large);
+    // the rest are secondary.
+    final secondary = <(String, String)>[
       ('Час у русі', formatGpsDuration(stats.moving)),
       ('Час на паузі', formatGpsDuration(stats.paused)),
       ('Середня швидкість', formatGpsSpeed(stats.averageSpeedMps)),
@@ -174,6 +186,7 @@ class GpsJourneySummaryView extends StatelessWidget {
       ('Темп', formatGpsPace(stats.paceSecondsPerKilometer)),
       ('Точки подорожі', '${summary.momentCount}'),
     ];
+    final hasTrack = summary.pointCount > 0;
 
     return SafeArea(
       child: Column(
@@ -186,51 +199,165 @@ class GpsJourneySummaryView extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(
-                    children: [
-                      Icon(Icons.check_circle, color: theme.colorScheme.primary),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          'Подорож завершено',
-                          key: const Key('gps_summary_title'),
-                          style: theme.textTheme.headlineSmall,
-                        ),
+                  const SizedBox(height: AppSpacing.md),
+                  Center(
+                    child: Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color:
+                            theme.colorScheme.primary.withValues(alpha: 0.16),
                       ),
-                    ],
-                  ),
-                  if (sync != null) ...[
-                    const SizedBox(height: AppSpacing.sm),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: GpsSyncBadge(sync: sync!, onRetry: onRetrySync),
+                      child: Icon(Icons.check_rounded,
+                          size: 44, color: theme.colorScheme.primary),
                     ),
-                  ],
-                  const SizedBox(height: AppSpacing.lg),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    'Подорож завершено',
+                    key: const Key('gps_summary_title'),
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    hasTrack
+                        ? 'Записано GPS-точок: ${summary.pointCount}'
+                        : 'GPS-точок не записано, маршрут порожній',
+                    key: const Key('gps_summary_track_note'),
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                  IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: _PrimaryMetric(
+                            key: const Key('gps_summary_distance'),
+                            label: 'Відстань',
+                            value: formatGpsDistance(stats.totalDistanceMeters),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: _PrimaryMetric(
+                            key: const Key('gps_summary_duration'),
+                            label: 'Загальний час',
+                            value: formatGpsDuration(stats.elapsed),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
                   Card(
+                    margin: EdgeInsets.zero,
                     child: Padding(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
                       child: Column(
                         children: [
-                          for (final (label, value) in metrics)
+                          for (final (label, value) in secondary)
                             _MetricRow(label: label, value: value),
                         ],
                       ),
                     ),
                   ),
+                  if (sync != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Card(
+                      key: const Key('gps_summary_sync_section'),
+                      margin: EdgeInsets.zero,
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Row(
+                          children: [
+                            Text('Синхронізація',
+                                style: theme.textTheme.bodyMedium),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: GpsSyncBadge(
+                                    sync: sync!, onRetry: onRetrySync),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: FilledButton(
-              key: const Key('gps_summary_done_button'),
-              onPressed: onDone,
-              child: const Text('Готово'),
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (onOpenDetails != null) ...[
+                  OutlinedButton.icon(
+                    key: const Key('gps_summary_open_button'),
+                    onPressed: onOpenDetails,
+                    icon: const Icon(Icons.route_outlined),
+                    label: const Text('Відкрити подорож'),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
+                FilledButton(
+                  key: const Key('gps_summary_done_button'),
+                  onPressed: onDone,
+                  child: const Text('Готово'),
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PrimaryMetric extends StatelessWidget {
+  const _PrimaryMetric({super.key, required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(label,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            const SizedBox(height: AppSpacing.xs),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.primary),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -245,17 +372,20 @@ class _MetricRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs + 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
+          Expanded(
+              child: Text(label,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant))),
           const SizedBox(width: AppSpacing.md),
           Flexible(
             child: Text(
               value,
               textAlign: TextAlign.end,
-              style: theme.textTheme.titleMedium,
+              style: theme.textTheme.titleSmall,
             ),
           ),
         ],

@@ -12,6 +12,7 @@ import '../recording/gps_recording_controller.dart';
 import '../recording/gps_recording_state.dart';
 import '../sync/gps_sync_coordinator.dart';
 import 'gps_add_moment_sheet.dart';
+import 'gps_journey_details_screen.dart';
 import 'gps_journey_summary_view.dart';
 import 'gps_live_moments.dart';
 import 'gps_photo_capture.dart';
@@ -215,6 +216,13 @@ class GpsRecordingMapBody extends ConsumerWidget {
             controller.dismissCompleted();
             Navigator.of(context).maybePop();
           },
+          // Same existing Details screen the history list opens.
+          onOpenDetails: () {
+            controller.dismissCompleted();
+            Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+              builder: (_) => GpsJourneyDetailsScreen(routeId: routeId),
+            ));
+          },
         ),
       );
     }
@@ -228,8 +236,10 @@ class GpsRecordingMapBody extends ConsumerWidget {
         ),
         SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0),
             child: _OverlayPanel(
+              compact: true,
               child: GpsRecordingHeader(
                 uiState: uiState,
                 // Minimizing/backing out must never discard or stop an
@@ -345,6 +355,10 @@ class GpsRecordingMapBody extends ConsumerWidget {
               onRetrySync: routeId == null
                   ? null
                   : () => syncCoordinator.retryRoute(routeId),
+              onRetryStream: state.status == GpsRecordingStatus.recording &&
+                      state.errorMessage != null
+                  ? controller.retryPositionStream
+                  : null,
             ),
             const SizedBox(height: AppSpacing.sm),
             _OverlayPanel(
@@ -482,13 +496,21 @@ class GpsRecordingMapBody extends ConsumerWidget {
 }
 
 class _OverlayPanel extends StatelessWidget {
-  const _OverlayPanel({required this.child});
+  const _OverlayPanel({required this.child, this.compact = false});
   final Widget child;
+
+  /// A slim panel (the header) leaves more of the map visible.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) => Card(
+        color: Theme.of(context).cardTheme.color?.withValues(alpha: 0.94),
+        margin: EdgeInsets.zero,
         child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
+          padding: compact
+              ? const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.sm, vertical: AppSpacing.xs)
+              : const EdgeInsets.all(AppSpacing.md),
           child: child,
         ),
       );

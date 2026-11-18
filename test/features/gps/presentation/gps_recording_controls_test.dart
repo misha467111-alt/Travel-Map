@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/core/theme/app_design.dart';
 import 'package:flutter_application_1/features/gps/presentation/gps_recording_controls.dart';
+import 'package:flutter_application_1/features/gps/presentation/gps_recording_status_card.dart';
 import 'package:flutter_application_1/features/gps/presentation/gps_recording_ui_state.dart';
 import 'package:flutter_application_1/features/gps/recording/gps_recording_state.dart';
 
@@ -142,5 +143,83 @@ void main() {
     expect(paused.canPause, isFalse);
     expect(recoverable.canAddWaypoint, isFalse);
     expect(recoverable.canResume, isTrue);
+  });
+
+  group('Phase 1 polish layout', () {
+    testWidgets('U01 Pause and Finish sit side by side, Pause is wider',
+        (tester) async {
+      await tester.pumpWidget(_wrap(GpsRecordingControls(
+        uiState: _map(GpsRecordingStatus.recording),
+        onPause: () {},
+        onFinish: () {},
+        onAddWaypoint: () {},
+        onDiscard: () {},
+      )));
+      final pause =
+          tester.getRect(find.byKey(const Key('gps_recording_pause_button')));
+      final finish =
+          tester.getRect(find.byKey(const Key('gps_recording_finish_button')));
+      expect(pause.top, finish.top);
+      expect(pause.width, greaterThan(finish.width));
+      expect(pause.height, greaterThanOrEqualTo(56));
+      final secondary = tester
+          .getRect(find.byKey(const Key('gps_recording_add_waypoint_button')));
+      expect(secondary.top, greaterThan(pause.bottom));
+    });
+
+    testWidgets('U02 Pause and Finish stack at a large text scale',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme(),
+        home: MediaQuery(
+          data: const MediaQueryData(
+              size: Size(320, 640), textScaler: TextScaler.linear(1.5)),
+          child: Scaffold(
+            body: GpsRecordingControls(
+              uiState: _map(GpsRecordingStatus.paused),
+              onResume: () {},
+              onFinish: () {},
+            ),
+          ),
+        ),
+      ));
+      final resume =
+          tester.getRect(find.byKey(const Key('gps_recording_resume_button')));
+      final finish =
+          tester.getRect(find.byKey(const Key('gps_recording_finish_button')));
+      expect(finish.top, greaterThanOrEqualTo(resume.bottom));
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('stream error retry row (P1 hotfix)', () {
+    testWidgets('S01 shown only with a callback; Retry is tappable',
+        (tester) async {
+      var retries = 0;
+      Widget card({VoidCallback? onRetryStream}) =>
+          _wrap(GpsRecordingStatusCard(
+            uiState: _map(GpsRecordingStatus.recording),
+            onRetryStream: onRetryStream,
+          ));
+      await tester.pumpWidget(card());
+      expect(find.byKey(const Key('gps_stream_error_row')), findsNothing);
+      await tester.pumpWidget(card(onRetryStream: () => retries++));
+      expect(find.text('Помилка GPS-сигналу, точки збережено'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('gps_stream_retry_button')));
+      expect(retries, 1);
+    });
+
+    testWidgets('S02 Pause and Finish stay available during the error',
+        (tester) async {
+      await tester.pumpWidget(_wrap(GpsRecordingControls(
+        uiState: _map(GpsRecordingStatus.recording),
+        onPause: () {},
+        onFinish: () {},
+      )));
+      expect(
+          find.byKey(const Key('gps_recording_pause_button')), findsOneWidget);
+      expect(
+          find.byKey(const Key('gps_recording_finish_button')), findsOneWidget);
+    });
   });
 }

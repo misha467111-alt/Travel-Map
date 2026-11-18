@@ -3,11 +3,15 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../../core/theme/app_design.dart';
 import '../domain/location_categories.dart';
 
 abstract final class CategoryMarkerIcons {
   static final Map<String, BitmapDescriptor> _icons = {};
   static BitmapDescriptor? _userLocation;
+
+  /// Whether the category bitmaps have been drawn.
+  static bool get isReady => _icons.isNotEmpty;
 
   static Future<void> initialize() async {
     if (_icons.isNotEmpty) return;
@@ -38,8 +42,9 @@ abstract final class CategoryMarkerIcons {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     const center = Offset(size / 2, size / 2);
-    canvas.drawCircle(center, 40, Paint()..color = Colors.black38);
-    canvas.drawCircle(center, 36, Paint()..color = Colors.white);
+    canvas.drawCircle(center, 40,
+        Paint()..color = AppColors.background.withValues(alpha: 0.55));
+    canvas.drawCircle(center, 36, Paint()..color = AppColors.textPrimary);
     canvas.drawCircle(center, 31, Paint()..color = color);
     final painter = TextPainter(
       text: TextSpan(

@@ -8,6 +8,7 @@ import '../../chat/local/chat_local_database.dart';
 import '../../friends/domain/friend_models.dart';
 import '../../friends/providers/friends_provider.dart';
 import '../../social/presentation/user_profile_screen.dart';
+import '../../../core/theme/app_design.dart';
 
 class ChatsScreen extends ConsumerWidget {
   const ChatsScreen({super.key});
@@ -332,7 +333,7 @@ class _MessageBubble extends StatelessWidget {
         margin: const EdgeInsets.only(bottom: 6),
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
         decoration: BoxDecoration(
-          color: mine ? const Color(0xFF7A5910) : const Color(0xFF14231D),
+          color: mine ? const Color(0xFF7A5910) : AppColors.surface,
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(11),
             topRight: const Radius.circular(11),
@@ -377,7 +378,7 @@ class _EmptyChats extends StatelessWidget {
         child: const Padding(
           padding: EdgeInsets.all(24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.forum_outlined, size: 36, color: Color(0xFFD4A017)),
+            Icon(Icons.forum_outlined, size: 36, color: AppColors.accent),
             SizedBox(height: 8),
             Text('Ваші чати з’являться тут'),
             SizedBox(height: 4),

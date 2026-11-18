@@ -231,7 +231,6 @@ class LocationImage extends StatelessWidget {
         key: const Key('location_image_placeholder'),
         color: const Color(0xFF183027),
         alignment: Alignment.center,
-        child:
-            Icon(presentation.icon, size: 38, color: const Color(0xFFD4A017)));
+        child: Icon(presentation.icon, size: 38, color: AppColors.accent));
   }
 }

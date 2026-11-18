@@ -18,6 +18,7 @@ import '../../map/presentation/map_screen.dart';
 import '../../map/presentation/route_creation_screen.dart';
 import '../../map/presentation/route_details_screen.dart';
 import '../../map/presentation/routes_presentation.dart';
+import '../../../core/theme/app_design.dart';
 
 enum ScalableLocationListMode { discover, adventure, nearby, saved, routes }
 
@@ -279,164 +280,208 @@ class _ScalableLocationsScreenState
     bool loading = false,
     Object? error,
     VoidCallback? loadMore,
-  }) =>
-      ListView(
-        key: Key('locations_${widget.mode.name}_scroll'),
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-        children: [
-          if (widget.mode != ScalableLocationListMode.routes) ...[
-            if (widget.mode == ScalableLocationListMode.adventure)
-              Card(
-                key: const Key('adventure_hero'),
-                margin: const EdgeInsets.only(bottom: 10),
-                child: Padding(
-                  padding: const EdgeInsets.all(13),
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.explore,
-                            color: Color(0xFFD4A017), size: 28),
-                        const SizedBox(height: 5),
-                        Text('Куди вирушимо сьогодні?',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 4),
-                        const Text(
-                            'Оберіть настрій і відстань — ми запропонуємо реальне місце поруч.'),
-                        const SizedBox(height: 9),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed: () =>
-                                setState(() => _adventureGeneration++),
-                            icon: const Icon(Icons.auto_awesome),
-                            label: const Text('Здивуй мене'),
-                          ),
+  }) {
+    final theme = Theme.of(context);
+    final isAdventure = widget.mode == ScalableLocationListMode.adventure;
+
+    Widget sectionLabel(String text, {double top = 6}) => Padding(
+          padding: EdgeInsets.fromLTRB(2, top, 2, 6),
+          child: Text(text,
+              style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600)),
+        );
+
+    // Radius, and (Adventure only) travel time and transport. Unchanged
+    // controls, keys and state; only their grouping and spacing differ.
+    final radius = <Widget>[
+      Text(
+        key: const Key('sphere_radius_label'),
+        'Радіус: ${_radiusKm.round()} км',
+        style:
+            theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+      ),
+      Slider(
+        key: const Key('sphere_radius_slider'),
+        value: _radiusKm,
+        min: 1,
+        max: 50,
+        divisions: 49,
+        label: '${_radiusKm.round()} км',
+        onChanged: (value) => setState(() => _radiusKm = value),
+      ),
+    ];
+    final adventureControls = <Widget>[
+      Text(
+        key: const Key('adventure_time_label'),
+        'Час у дорозі: ${_travelMinutes.round()} хв',
+        style:
+            theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+      ),
+      Slider(
+        key: const Key('adventure_time_slider'),
+        value: _travelMinutes,
+        min: 10,
+        max: 180,
+        divisions: 17,
+        label: '${_travelMinutes.round()} хв',
+        onChanged: (value) => setState(() => _travelMinutes = value),
+      ),
+      const SizedBox(height: 2),
+      DropdownButtonFormField<AdventureTransportMode>(
+        key: const Key('adventure_transport_field'),
+        initialValue: _transport,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Транспорт',
+          isDense: true,
+        ),
+        items: AdventureTransportMode.values
+            .map((value) => DropdownMenuItem(
+                  value: value,
+                  child: Text(_adventureTransportLabel(value)),
+                ))
+            .toList(),
+        onChanged: (value) => setState(() => _transport = value ?? _transport),
+      ),
+    ];
+
+    return ListView(
+      key: Key('locations_${widget.mode.name}_scroll'),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+      children: [
+        if (widget.mode != ScalableLocationListMode.routes) ...[
+          if (isAdventure)
+            Card(
+              key: const Key('adventure_hero'),
+              margin: const EdgeInsets.only(bottom: 4),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        Icon(Icons.explore,
+                            color: theme.colorScheme.primary, size: 24),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text('Куди вирушимо сьогодні?',
+                              style: theme.textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600)),
                         ),
                       ]),
-                ),
+                      const SizedBox(height: 4),
+                      Text(
+                          'Оберіть настрій і відстань — ми запропонуємо реальне місце поруч.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant)),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () =>
+                              setState(() => _adventureGeneration++),
+                          icon: const Icon(Icons.auto_awesome),
+                          label: const Text('Здивуй мене'),
+                        ),
+                      ),
+                    ]),
               ),
+            ),
+          if (isAdventure)
+            sectionLabel('Настрій')
+          else
             const SizedBox(height: 5),
-            Wrap(
-              spacing: 5,
-              runSpacing: 0,
-              children: referenceLocationCategories
-                  .map((definition) => ChoiceChip(
-                        key: Key('sphere_category_${definition.key}'),
-                        visualDensity:
-                            const VisualDensity(horizontal: -3, vertical: -3),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-                        avatar: Icon(definition.icon, size: 15),
-                        label: Text(definition.label,
-                            style: const TextStyle(
-                                fontSize: 12, fontWeight: FontWeight.w500)),
-                        selected: _category == definition.key,
-                        onSelected: (_) {
-                          setState(() => _category = definition.key);
-                          if (_isDiscover) _loadPage(reset: true);
-                        },
-                      ))
-                  .toList(),
-            ),
-          ],
-          if (widget.mode == ScalableLocationListMode.nearby ||
-              widget.mode == ScalableLocationListMode.adventure) ...[
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                key: const Key('sphere_radius_label'),
-                'Радіус: ${_radiusKm.round()} км',
-                style: Theme.of(context)
-                    .textTheme
-                    .labelLarge
-                    ?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ),
-            Slider(
-              key: const Key('sphere_radius_slider'),
-              value: _radiusKm,
-              min: 1,
-              max: 50,
-              divisions: 49,
-              label: '${_radiusKm.round()} км',
-              onChanged: (value) => setState(() => _radiusKm = value),
-            ),
-          ],
-          if (widget.mode == ScalableLocationListMode.adventure) ...[
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                key: const Key('adventure_time_label'),
-                'Час у дорозі: ${_travelMinutes.round()} хв',
-                style: Theme.of(context)
-                    .textTheme
-                    .labelLarge
-                    ?.copyWith(fontWeight: FontWeight.w600),
-              ),
-            ),
-            Slider(
-              key: const Key('adventure_time_slider'),
-              value: _travelMinutes,
-              min: 10,
-              max: 180,
-              divisions: 17,
-              label: '${_travelMinutes.round()} хв',
-              onChanged: (value) => setState(() => _travelMinutes = value),
-            ),
-            const SizedBox(height: 4),
-            DropdownButtonFormField<AdventureTransportMode>(
-              key: const Key('adventure_transport_field'),
-              initialValue: _transport,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Транспорт'),
-              items: AdventureTransportMode.values
-                  .map((value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(_adventureTransportLabel(value)),
-                      ))
-                  .toList(),
-              onChanged: (value) =>
-                  setState(() => _transport = value ?? _transport),
-            ),
-            const SizedBox(height: 8),
-          ],
-          for (final location in items)
-            _BoundedLocationCard(
-              location: location,
-              compact: widget.mode == ScalableLocationListMode.discover ||
-                  widget.mode == ScalableLocationListMode.adventure,
-            ),
-          if (widget.mode == ScalableLocationListMode.adventure &&
-              items.isEmpty &&
-              error == null &&
-              !loading)
-            const Padding(
-              key: Key('adventure_empty_state'),
-              padding: EdgeInsets.all(32),
-              child: Center(
-                child: Text('У вибраному радіусі локацій не знайдено'),
-              ),
-            ),
-          if (error != null)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('Не вдалося завантажити місця.'),
-            ),
-          if (loading)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (loadMore != null)
-            FilledButton.tonal(
-              onPressed: loadMore,
-              child: const Text('Завантажити ще'),
-            ),
+          // One chip look for every category: same density, no checkmark
+          // (it would widen the selected chip), neutral icon, primary tint
+          // when selected.
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: referenceLocationCategories
+                .map((definition) => ChoiceChip(
+                      key: Key('sphere_category_${definition.key}'),
+                      visualDensity:
+                          const VisualDensity(horizontal: -2, vertical: -3),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      showCheckmark: false,
+                      labelPadding: const EdgeInsets.symmetric(horizontal: 3),
+                      selectedColor:
+                          theme.colorScheme.primary.withValues(alpha: 0.24),
+                      side: BorderSide(
+                        color: _category == definition.key
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.outlineVariant,
+                      ),
+                      avatar: Icon(definition.icon,
+                          size: 16,
+                          color: _category == definition.key
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurfaceVariant),
+                      label: Text(definition.label,
+                          style: const TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w500)),
+                      selected: _category == definition.key,
+                      onSelected: (_) {
+                        setState(() => _category = definition.key);
+                        if (_isDiscover) _loadPage(reset: true);
+                      },
+                    ))
+                .toList(),
+          ),
         ],
-      );
+        if (isAdventure) ...[
+          sectionLabel('Параметри подорожі', top: 12),
+          Card(
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [...radius, ...adventureControls],
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ] else if (widget.mode == ScalableLocationListMode.nearby) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: radius.first,
+          ),
+          radius.last,
+        ],
+        for (final location in items)
+          _BoundedLocationCard(
+            location: location,
+            compact:
+                widget.mode == ScalableLocationListMode.discover || isAdventure,
+          ),
+        if (isAdventure && items.isEmpty && error == null && !loading)
+          const Padding(
+            key: Key('adventure_empty_state'),
+            padding: EdgeInsets.all(32),
+            child: Center(
+              child: Text('У вибраному радіусі локацій не знайдено'),
+            ),
+          ),
+        if (error != null)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('Не вдалося завантажити місця.'),
+          ),
+        if (loading)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (loadMore != null)
+          FilledButton.tonal(
+            onPressed: loadMore,
+            child: const Text('Завантажити ще'),
+          ),
+      ],
+    );
+  }
 }
 
 class _BoundedLocationCard extends ConsumerWidget {
@@ -531,7 +576,7 @@ class _RouteDestinationSheet extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     leading: const Icon(Icons.place_outlined,
-                        color: Color(0xFFD4A017)),
+                        color: AppColors.accent),
                     title: Text(item.title,
                         maxLines: 2, overflow: TextOverflow.ellipsis),
                     subtitle: Text(locationCategoryDefinition(item.category)
@@ -564,12 +609,12 @@ class _RouteEndpoint extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF14231D),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: Colors.white10),
         ),
         child: Row(children: [
-          Icon(icon, color: const Color(0xFFD4A017)),
+          Icon(icon, color: AppColors.accent),
           const SizedBox(width: 9),
           Expanded(
             child: Column(

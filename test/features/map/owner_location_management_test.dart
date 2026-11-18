@@ -133,8 +133,7 @@ void main() {
     });
   });
 
-  group('Edit/Delete widget behavior (production LocationDetailsContent)',
-      () {
+  group('Edit/Delete widget behavior (production LocationDetailsContent)', () {
     Widget subject({
       required LocationModel testLocation,
       String? currentUserId = 'owner-1',
@@ -186,8 +185,7 @@ void main() {
           ),
         );
 
-    testWidgets(
-        'owner + draft shows Edit/Delete; non-owner does not (D07 too)',
+    testWidgets('owner + draft shows Edit/Delete; non-owner does not (D07 too)',
         (tester) async {
       final draft = location(status: 'draft');
       await tester.pumpWidget(subject(testLocation: draft));
@@ -204,8 +202,8 @@ void main() {
       await tester.pumpWidget(subject(testLocation: pending));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('location_details_edit_action')),
-          findsNothing);
+      expect(
+          find.byKey(const Key('location_details_edit_action')), findsNothing);
       expect(find.byKey(const Key('location_details_delete_action')),
           findsNothing);
     });
@@ -217,8 +215,8 @@ void main() {
           subject(testLocation: draft, currentUserId: 'someone-else'));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('location_details_edit_action')),
-          findsNothing);
+      expect(
+          find.byKey(const Key('location_details_edit_action')), findsNothing);
       expect(find.byKey(const Key('location_details_delete_action')),
           findsNothing);
     });
@@ -325,8 +323,8 @@ void main() {
       await tester.tap(find.byKey(const Key('location_details_edit_action')));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('location_edit_title_field')),
-          findsOneWidget);
+      expect(
+          find.byKey(const Key('location_edit_title_field')), findsOneWidget);
       expect(find.byKey(const Key('location_edit_description_field')),
           findsOneWidget);
       expect(find.byKey(const Key('location_edit_category_field')),
@@ -431,15 +429,16 @@ void main() {
       await tester.tap(find.byKey(const Key('location_details_edit_action')));
       await tester.pumpAndSettle();
 
-      final titleField = tester
-          .widget<TextField>(find.byKey(const Key('location_edit_title_field')));
+      final titleField = tester.widget<TextField>(
+          find.byKey(const Key('location_edit_title_field')));
       final descriptionField = tester.widget<TextField>(
           find.byKey(const Key('location_edit_description_field')));
       expect(titleField.maxLength, locationTitleMaxLength);
       expect(descriptionField.maxLength, locationDescriptionMaxLength);
     });
 
-    testWidgets('D01/D02 Delete opens confirmation; Cancel performs zero '
+    testWidgets(
+        'D01/D02 Delete opens confirmation; Cancel performs zero '
         'delete calls', (tester) async {
       var callCount = 0;
       final draft = location(status: 'draft');
@@ -451,8 +450,7 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      await tester
-          .tap(find.byKey(const Key('location_details_delete_action')));
+      await tester.tap(find.byKey(const Key('location_details_delete_action')));
       await tester.pumpAndSettle();
 
       expect(find.text('Видалити локацію?'), findsOneWidget);
@@ -480,11 +478,9 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      await tester
-          .tap(find.byKey(const Key('location_details_delete_action')));
+      await tester.tap(find.byKey(const Key('location_details_delete_action')));
       await tester.pumpAndSettle();
-      await tester
-          .tap(find.byKey(const Key('location_delete_confirm_button')));
+      await tester.tap(find.byKey(const Key('location_delete_confirm_button')));
       await tester.pumpAndSettle();
 
       expect(callCount, 1);
@@ -549,15 +545,13 @@ void main() {
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
-      await tester
-          .tap(find.byKey(const Key('location_details_delete_action')));
+      await tester.tap(find.byKey(const Key('location_details_delete_action')));
       await tester.pumpAndSettle();
-      await tester
-          .tap(find.byKey(const Key('location_delete_confirm_button')));
+      await tester.tap(find.byKey(const Key('location_delete_confirm_button')));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('location_details_delete_action')),
-          findsNothing,
+      expect(
+          find.byKey(const Key('location_details_delete_action')), findsNothing,
           reason: 'details screen must have popped after successful delete');
       expect(find.text('open'), findsOneWidget);
     });
@@ -574,11 +568,9 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      await tester
-          .tap(find.byKey(const Key('location_details_delete_action')));
+      await tester.tap(find.byKey(const Key('location_details_delete_action')));
       await tester.pumpAndSettle();
-      await tester
-          .tap(find.byKey(const Key('location_delete_confirm_button')));
+      await tester.tap(find.byKey(const Key('location_delete_confirm_button')));
       await tester.pumpAndSettle();
 
       expect(find.text('Не вдалося видалити локацію.'), findsOneWidget);
@@ -651,11 +643,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester
-          .tap(find.byKey(const Key('location_details_delete_action')));
+      await tester.tap(find.byKey(const Key('location_details_delete_action')));
       await tester.pumpAndSettle();
-      await tester
-          .tap(find.byKey(const Key('location_delete_confirm_button')));
+      await tester.tap(find.byKey(const Key('location_delete_confirm_button')));
       await tester.pumpAndSettle();
 
       expect(evaluationCount, 2,
@@ -734,7 +724,8 @@ void main() {
           expect(find.byKey(const Key('location_edit_save_button')),
               findsOneWidget);
 
-          await tester.tap(find.byKey(const Key('location_edit_cancel_button')));
+          await tester
+              .tap(find.byKey(const Key('location_edit_cancel_button')));
           await tester.pumpAndSettle();
 
           await tester

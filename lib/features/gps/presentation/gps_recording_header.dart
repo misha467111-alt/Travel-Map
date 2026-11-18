@@ -32,17 +32,21 @@ class GpsRecordingHeader extends StatelessWidget {
             icon: const Icon(Icons.arrow_back),
             tooltip: 'Згорнути',
           ),
-        const SizedBox(width: AppSpacing.sm),
+        const SizedBox(width: AppSpacing.xs),
+        // Compact single-line header: title, then the status on the same
+        // line when it fits (the status label wraps below only if needed).
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Запис маршруту', style: theme.textTheme.titleLarge),
+              Text('Запис маршруту', style: theme.textTheme.titleMedium),
               Text(
                 uiState.statusLabel,
                 key: const Key('gps_recording_status_label'),
-                style: theme.textTheme.bodyMedium
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall
                     ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
             ],

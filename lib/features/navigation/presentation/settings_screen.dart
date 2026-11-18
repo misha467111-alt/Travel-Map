@@ -6,6 +6,7 @@ import '../../../controllers/profile_controller.dart';
 import '../../chat/local/chat_local_database_provider.dart';
 import '../../gps/local/gps_local_database_provider.dart';
 import '../../gps/presentation/gps_recording_debug_screen.dart';
+import '../../../core/theme/app_design.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -90,7 +91,7 @@ class SettingsPage extends StatelessWidget {
                     value: offlineMode,
                     onChanged: onOfflineChanged,
                     secondary: const Icon(Icons.offline_bolt_outlined,
-                        color: Color(0xFFD4A017)),
+                        color: AppColors.accent),
                     title: const Text('Офлайн-режим'),
                     subtitle: const Text(
                       'Використовувати збережені локації та маршрути без мережі',

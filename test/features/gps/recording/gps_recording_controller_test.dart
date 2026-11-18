@@ -163,8 +163,10 @@ void main() {
       source.emitStreamError(Exception('simulated GPS chip failure'));
       await settle();
 
-      // The controller reflects the error...
-      expect(controller.state.status, GpsRecordingStatus.otherError);
+      // The active session is NOT abandoned: it stays "recording" (Pause and
+      // Finish stay available) and only flags the stream error...
+      expect(controller.state.status, GpsRecordingStatus.recording);
+      expect(controller.state.errorMessage, 'location stream error');
       // ...but the point already accepted before the error is untouched,
       // and the local route itself is still there and still recoverable.
       final points =
@@ -172,6 +174,93 @@ void main() {
       expect(points, hasLength(1));
       final route = await db.getRecordedRoute(ownerId: 'me', id: routeId);
       expect(route, isNotNull);
+    });
+  });
+
+  group('GPS stream error during an active recording (P1 hotfix)', () {
+    Future<void> point(double lat) async {
+      source.emitPosition(
+          testPosition(latitude: lat, timestamp: DateTime.now().toUtc()));
+      await settle();
+    }
+
+    test(
+        'Start -> points -> error -> Retry -> points -> Finish keeps the '
+        'same session and every point', () async {
+      await controller.start();
+      await settle();
+      final routeId = controller.state.routeId!;
+      await point(50.4500);
+      await point(50.4501);
+
+      source.emitStreamError(Exception('chip failure'));
+      await settle();
+      expect(controller.state.status, GpsRecordingStatus.recording);
+      expect(controller.state.errorMessage, isNotNull);
+      expect(controller.state.pointCount, 2);
+
+      final subscriptions = source.subscribeCallCount;
+      await controller.retryPositionStream();
+      await settle();
+      // Same session, exactly one live subscription, error cleared.
+      expect(controller.state.routeId, routeId);
+      expect(controller.state.errorMessage, isNull);
+      expect(source.subscribeCallCount, subscriptions + 1);
+      expect(source.activeSubscriptionCount, 1);
+
+      await point(50.4502);
+      await point(50.4503);
+      expect(controller.state.pointCount, 4, reason: 'no duplicated points');
+
+      expect(await controller.finish(), isTrue);
+      await settle();
+      final routes = await db.getCompletedRoutes('me');
+      expect(routes, hasLength(1));
+      expect(routes.single.id, routeId,
+          reason: 'Retry must not create a Journey');
+      expect(routes.single.status, RecordedRouteStatus.completed);
+      final points =
+          await db.getRoutePoints(ownerId: 'me', recordedRouteId: routeId);
+      expect(points, hasLength(4));
+      expect(source.activeSubscriptionCount, 0);
+    });
+
+    test('Start -> points -> error -> Finish saves every point', () async {
+      await controller.start();
+      await settle();
+      final routeId = controller.state.routeId!;
+      await point(50.4500);
+      await point(50.4501);
+      await point(50.4502);
+
+      source.emitStreamError(Exception('chip failure'));
+      await settle();
+      expect(controller.state.status, GpsRecordingStatus.recording);
+
+      expect(await controller.finish(), isTrue);
+      await settle();
+      final route = await db.getRecordedRoute(ownerId: 'me', id: routeId);
+      expect(route!.status, RecordedRouteStatus.completed);
+      final points =
+          await db.getRoutePoints(ownerId: 'me', recordedRouteId: routeId);
+      expect(points, hasLength(3));
+    });
+
+    test('a delivered point clears the error flag by itself', () async {
+      await controller.start();
+      await settle();
+      source.emitStreamError(Exception('transient'));
+      await settle();
+      expect(controller.state.errorMessage, isNotNull);
+      await point(50.4500);
+      expect(controller.state.errorMessage, isNull);
+      expect(controller.state.pointCount, 1);
+    });
+
+    test('Retry outside an active recording does nothing', () async {
+      await controller.retryPositionStream();
+      expect(source.subscribeCallCount, 0);
+      expect(controller.state.status, GpsRecordingStatus.idle);
     });
   });
 

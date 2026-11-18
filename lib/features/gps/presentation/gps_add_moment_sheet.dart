@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/app_design.dart';
 
 /// Journey Phase 1B -- matches [GpsAddMomentSheet.onAdd] to
 /// `GpsRecordingController.addWaypoint`'s exact signature (that method has
@@ -118,8 +119,8 @@ class GpsAddMomentSheet extends StatefulWidget {
 }
 
 class _GpsAddMomentSheetState extends State<GpsAddMomentSheet> {
-  static const _background = Color(0xFF0D1C17);
-  static const _gold = Color(0xFFD4A017);
+  static const _background = AppColors.surface;
+  static const _gold = AppColors.accent;
 
   late String _type;
   late final TextEditingController _titleController;
@@ -301,7 +302,7 @@ class _GpsAddMomentSheetState extends State<GpsAddMomentSheet> {
                             onPressed: _saving ? null : _submit,
                             style: FilledButton.styleFrom(
                               backgroundColor: _gold,
-                              foregroundColor: const Color(0xFF171106),
+                              foregroundColor: AppColors.onAccent,
                             ),
                             icon: _saving
                                 ? const SizedBox.square(

@@ -5,6 +5,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_application_1/core/theme/app_design.dart';
 import 'package:flutter_application_1/features/gps/local/gps_local_database.dart';
 import 'package:flutter_application_1/features/gps/presentation/gps_journey_details_view.dart';
+import 'package:flutter_application_1/features/gps/presentation/gps_journey_replay_screen.dart';
+import 'package:flutter_application_1/features/gps/replay/gps_journey_replay.dart';
 import 'package:flutter_application_1/features/gps/presentation/gps_journey_history_view.dart';
 import 'package:flutter_application_1/features/gps/recording/gps_journey_details.dart';
 import 'package:flutter_application_1/features/gps/recording/gps_journey_statistics.dart';
@@ -365,5 +367,57 @@ void main() {
         });
       }
     }
+  });
+
+  group('Replay entry (Phase 1I-B1B-2)', () {
+    final events = [
+      _event(1, RouteEventType.start, 0),
+      _event(2, RouteEventType.finish, 60),
+    ];
+
+    Widget app(GpsJourneyDetails? details, {GpsReplayTimeline? timeline}) =>
+        ProviderScope(
+          key: UniqueKey(),
+          overrides: [
+            gpsJourneyDetailsProvider
+                .overrideWith((ref, args) async => details),
+            gpsJourneyDetailsRouteProvider
+                .overrideWith((ref, args) => const Stream.empty()),
+            gpsJourneyReplayTimelineProvider
+                .overrideWith((ref, args) async => timeline),
+          ],
+          child: MaterialApp(
+            theme: buildAppTheme(),
+            home: Scaffold(body: _body()),
+          ),
+        );
+
+    _tw('R01 the Replay button opens the Replay screen and back returns',
+        (tester) async {
+      final details = _details(events: events);
+      final timeline =
+          GpsReplayTimeline.fromDetails(details, events: events, now: _at(100));
+      await tester.pumpWidget(app(details, timeline: timeline));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Відтворити'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('gps_details_replay_button')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('gps_replay_map')), findsOneWidget);
+      expect(find.byKey(const Key('gps_replay_play_pause')), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('gps_replay_map')), findsNothing);
+      expect(find.byKey(const Key('gps_details_title')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    _tw('R02 a Journey without points has no Replay button', (tester) async {
+      await tester
+          .pumpWidget(app(_details(points: const [], moments: const [])));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('gps_details_replay_button')), findsNothing);
+    });
   });
 }

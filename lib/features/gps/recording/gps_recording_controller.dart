@@ -356,12 +356,46 @@ class GpsRecordingController with WidgetsBindingObserver {
         // in-memory state reflects the failure.
         debugPrint(
             'gps: position stream error, recording state preserved locally');
+        if (_state.status == GpsRecordingStatus.recording &&
+            _state.routeId == routeId) {
+          // The session is still active: its points are kept, Pause and
+          // Finish stay available, and the failure is only flagged in
+          // [GpsRecordingState.errorMessage] until [retryPositionStream]
+          // (or the next accepted point) clears it.
+          _emit(_state.copyWith(errorMessage: 'location stream error'));
+          return;
+        }
         _emit(_state.copyWith(
           status: GpsRecordingStatus.otherError,
           errorMessage: 'location stream error',
         ));
       },
     );
+  }
+
+  /// Re-subscribes to the position stream of the SAME active session after
+  /// a stream error. The previous subscription is cancelled first, so there is
+  /// never more than one; no route, event or point is created.
+  Future<void> retryPositionStream() async {
+    final routeId = _state.routeId;
+    if (_state.status != GpsRecordingStatus.recording || routeId == null) {
+      return;
+    }
+    final readiness = await _permissionService.ensureReady();
+    if (readiness != LocationReadiness.granted) {
+      _emit(_state.copyWith(
+        errorMessage: readiness == LocationReadiness.serviceDisabled
+            ? 'location service disabled'
+            : 'location permission missing',
+      ));
+      return;
+    }
+    try {
+      _subscribeToPositionStream(routeId);
+      _emit(_state.copyWith(errorMessage: null));
+    } catch (_) {
+      _emit(_state.copyWith(errorMessage: 'location stream failed to start'));
+    }
   }
 
   Future<void> _onPosition(String routeId, Position position) async {
@@ -391,8 +425,11 @@ class GpsRecordingController with WidgetsBindingObserver {
       return;
     }
     if (_state.routeId == routeId) {
+      // A delivered point proves the stream works again.
       _emit(_state.copyWith(
-          lastAccepted: sample, pointCount: _state.pointCount + 1));
+          lastAccepted: sample,
+          pointCount: _state.pointCount + 1,
+          errorMessage: null));
     }
   }
 

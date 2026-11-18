@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/theme/app_design.dart';
 
 class ProfileIdentityHeader extends StatelessWidget {
   const ProfileIdentityHeader({
@@ -118,7 +119,7 @@ class ProfileStats extends StatelessWidget {
                 margin: const EdgeInsets.symmetric(horizontal: 3),
                 padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF14231D),
+                  color: AppColors.surface,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: Colors.white10),
                 ),
@@ -127,7 +128,7 @@ class ProfileStats extends StatelessWidget {
                   children: [
                     Text(item.value,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: const Color(0xFFD4A017),
+                              color: AppColors.accent,
                               fontWeight: FontWeight.w600,
                             )),
                     Text(item.label,

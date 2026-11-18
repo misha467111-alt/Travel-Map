@@ -6,6 +6,7 @@ import '../providers/route_provider.dart';
 import 'location_card.dart' show locationImageDecodeSize;
 import 'map_screen.dart';
 import 'routes_presentation.dart';
+import '../../../core/theme/app_design.dart';
 
 class RouteDetailsScreen extends ConsumerWidget {
   const RouteDetailsScreen({required this.destination, super.key});
@@ -168,12 +169,12 @@ class RoutePlaceholder extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF1C382D), Color(0xFF10221B)],
+            colors: [Color(0xFF1C382D), AppColors.surface],
           ),
         ),
         alignment: Alignment.center,
         child:
-            const Icon(Icons.route_rounded, size: 42, color: Color(0xFFD4A017)),
+            const Icon(Icons.route_rounded, size: 42, color: AppColors.accent),
       );
 }
 
@@ -191,7 +192,7 @@ class RouteStatsCard extends StatelessWidget {
         key: const Key('route_stats'),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
-          color: const Color(0xFF14231D),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white10),
         ),
@@ -229,7 +230,7 @@ class _LabeledStat extends StatelessWidget {
           Text(value,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: const Color(0xFFD4A017),
+                    color: AppColors.accent,
                     fontWeight: FontWeight.w700,
                   )),
           const SizedBox(height: 2),
@@ -275,7 +276,7 @@ class OrderedRouteStops extends StatelessWidget {
                     height: 28,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFD4A017),
+                      color: AppColors.accent,
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.black12),
                     ),
@@ -302,7 +303,7 @@ class OrderedRouteStops extends StatelessWidget {
                     dense: true,
                     visualDensity: const VisualDensity(vertical: -2),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 10),
-                    leading: Icon(stop.icon, color: const Color(0xFFD4A017)),
+                    leading: Icon(stop.icon, color: AppColors.accent),
                     title: Text(stop.title,
                         maxLines: 3, overflow: TextOverflow.ellipsis),
                     trailing: stop.onTap == null

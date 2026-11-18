@@ -24,13 +24,16 @@ import '../providers/map_filter_provider.dart';
 import '../providers/network_provider.dart';
 import '../providers/route_provider.dart';
 import 'clustered_location_map.dart';
-import 'map_reference_icons.dart';
 import 'location_card.dart';
 import 'route_details_screen.dart';
 import 'route_creation_screen.dart';
 import 'review_screen.dart';
 import 'map_filters_sheet.dart';
-import 'map_categories_sheet.dart';
+import 'map_main_controls.dart';
+import 'map_location_carousel.dart';
+import 'map_route_fit.dart';
+import '../../personalization/traveler_marker.dart';
+import '../../../core/theme/app_design.dart';
 import '../../navigation/presentation/scalable_locations_screen.dart';
 import 'create_location_screen.dart';
 import 'location_pick_screen.dart';
@@ -62,6 +65,31 @@ class MapScreen extends ConsumerStatefulWidget {
 class _MapScreenState extends ConsumerState<MapScreen> {
   MapViewportBounds? _viewport;
   List<LocationModel> _lastLocations = const [];
+  bool _carouselExpanded = true;
+  String? _selectedLocationId;
+  double _routeCardHeight = 120; // replaced by the measured height
+
+  // The carousel is recomputed only when the list instance or the user's
+  // position changes, not on every rebuild (sorting is O(n log n)).
+  List<LocationModel>? _carouselSource;
+  double? _carouselLat;
+  double? _carouselLng;
+  List<MapCarouselEntry> _carouselEntries = const [];
+
+  List<MapCarouselEntry> _carouselFor(
+      List<LocationModel> locations, double lat, double lng) {
+    if (!identical(_carouselSource, locations) ||
+        _carouselLat != lat ||
+        _carouselLng != lng) {
+      _carouselSource = locations;
+      _carouselLat = lat;
+      _carouselLng = lng;
+      _carouselEntries = nearestCarouselEntries(locations,
+          userLatitude: lat, userLongitude: lng);
+    }
+    return _carouselEntries;
+  }
+
   double? _lastUserLatitude;
   double? _lastUserLongitude;
 
@@ -121,6 +149,41 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _logGpsState();
       return true;
     }());
+  }
+
+  // ---- route camera -------------------------------------------------
+
+  final RouteFitScheduler _routeFit = RouteFitScheduler();
+
+  static List<LatLng> _latLngs(RouteState route) => [
+        for (final p in route.points) LatLng(p.latitude, p.longitude),
+      ];
+
+  // Called with the laid-out height of the route card. The first measurement
+  // after a route is built releases the pending fit, so the camera is framed
+  // for the final map padding (never twice, never before layout).
+  void _onRouteCardHeight(double h) {
+    var changed = h != _routeCardHeight;
+    if (changed) _routeCardHeight = h;
+    if (_routeFit.cardMeasured()) changed = true;
+    if (changed) setState(() {});
+  }
+
+  /// The "Увесь маршрут" action: a new request, so the map frames the whole
+  /// route again (the same route, after the user moved the map).
+  void _showWholeRoute() {
+    final route = ref.read(routeProvider);
+    if (!route.hasRoute) return;
+    setState(() => _routeFit.showWhole(_latLngs(route)));
+  }
+
+  // The most the floating buttons may be raised: the screen minus the
+  // header, the three buttons and the bottom navigation, so they never leave
+  // the screen however tall the route card gets.
+  double _maxToolbarInset(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    return size.height - padding.top - padding.bottom - 80 - 72 - 168;
   }
 
   Future<void> _logGpsState() async {
@@ -285,204 +348,264 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Widget build(BuildContext context) {
     final position = ref.watch(currentPositionProvider);
     final route = ref.watch(routeProvider);
+    // A new successful route asks the map to show it whole, once the card
+    // is measured (its height is part of the map padding); a reset or a
+    // replacement cancels anything pending.
+    ref.listen<RouteState>(routeProvider, (previous, next) {
+      _routeFit.routeChanged(
+        success: next.status == RouteStatus.success,
+        isNew: previous?.status != RouteStatus.success ||
+            !identical(previous?.points, next.points),
+        points: () => _latLngs(next),
+      );
+    });
     final isOnline = ref.watch(isOnlineProvider);
+    // Personalized user marker (null icon while it is drawn: default marker).
+    final travelerSettings = ref.watch(travelerMarkerProvider);
+    final travelerIcon = ref.watch(travelerMarkerIconProvider).value;
 
     return Scaffold(
-      appBar: AppBar(
-        toolbarHeight: 48,
-        titleSpacing: 12,
-        title: const Text(
-          'Travel Map',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
-        ),
-        actionsIconTheme: const IconThemeData(size: 18),
-        actions: [
-          const _NotificationsButton(),
-          IconButton(
-            tooltip: 'Фільтри',
-            onPressed: () => _showMapFilters(context, ref),
-            style: _mapAppBarActionStyle,
-            icon:
-                const Icon(Icons.filter_alt_outlined, color: Color(0xFFD4A017)),
-          ),
-          MapSearchAction(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const LocationSearchScreen(),
-              ),
-            ),
-          ),
-        ],
-      ),
-      body: position.when(
-        data: (currentPosition) {
-          _lastUserLatitude = currentPosition.latitude;
-          _lastUserLongitude = currentPosition.longitude;
-          final bounds = _viewport ??
-              MapViewportBounds(
-                minLatitude: currentPosition.latitude - 0.1,
-                minLongitude: currentPosition.longitude - 0.1,
-                maxLatitude: currentPosition.latitude + 0.1,
-                maxLongitude: currentPosition.longitude + 0.1,
-              );
-          final filters = ref.watch(mapFilterProvider).applied;
-          final query = MapViewportQuery(
-            bounds: bounds,
-            category: filters.category == 'all' ? null : filters.category,
-            userLatitude: currentPosition.latitude,
-            userLongitude: currentPosition.longitude,
-            maximumDistanceMeters: filters.maximumDistanceMeters,
-            minimumRating: filters.minimumRating,
-            openNow: filters.openNow,
-            familyOnly: filters.familyOnly,
-            sort: filters.rpcSort,
-          );
-          final locations = ref.watch(viewportLocationsProvider(query));
-          final freshLocations = locations.asData?.value.items;
-          if (freshLocations != null) _lastLocations = freshLocations;
-          final visibleLocations = freshLocations ?? _lastLocations;
-          assert(() {
-            if (freshLocations != null) {
-              debugPrint('[MAP_DEBUG] rows=${freshLocations.length} '
-                  'bbox=${bounds.minLatitude},${bounds.minLongitude},'
-                  '${bounds.maxLatitude},${bounds.maxLongitude} '
-                  'category=${query.category ?? "NULL"}');
-            }
-            return true;
-          }());
-          return Stack(
-            children: [
-              ClusteredLocationMap(
-                key: const Key('stable_viewport_map'),
-                initialTarget: LatLng(
-                  currentPosition.latitude,
-                  currentPosition.longitude,
-                ),
-                userPosition: LatLng(
-                  currentPosition.latitude,
-                  currentPosition.longitude,
-                ),
-                locations: visibleLocations,
-                polylines: route.hasRoute
-                    ? {
-                        Polyline(
-                          polylineId: const PolylineId('active_route'),
-                          points: route.points
-                              .map((point) => LatLng(
-                                    point.latitude,
-                                    point.longitude,
-                                  ))
-                              .toList(growable: false),
-                          color: Theme.of(context).colorScheme.primary,
-                          width: 6,
-                          startCap: Cap.roundCap,
-                          endCap: Cap.roundCap,
-                        ),
-                      }
-                    : const <Polyline>{},
-                onLocationTap: (location) =>
-                    _showLocationDetails(context, ref, location),
-                onLongPress: (point) =>
-                    _handleMapLongPress(context, ref, point),
-                onViewportChanged: (visible) {
-                  final next = MapViewportBounds(
-                    minLatitude: visible.southwest.latitude,
-                    minLongitude: visible.southwest.longitude,
-                    maxLatitude: visible.northeast.latitude,
-                    maxLongitude: visible.northeast.longitude,
+      body: Stack(children: [
+        Positioned.fill(
+          child: position.when(
+            data: (currentPosition) {
+              _lastUserLatitude = currentPosition.latitude;
+              _lastUserLongitude = currentPosition.longitude;
+              final bounds = _viewport ??
+                  MapViewportBounds(
+                    minLatitude: currentPosition.latitude - 0.1,
+                    minLongitude: currentPosition.longitude - 0.1,
+                    maxLatitude: currentPosition.latitude + 0.1,
+                    maxLongitude: currentPosition.longitude + 0.1,
                   );
-                  if (_viewport == null ||
-                      next.materiallyDiffersFrom(_viewport!)) {
-                    setState(() => _viewport = next);
-                  }
-                },
-                beforeLocationToolbarAction: MapToolbarButton(
-                  tooltip: 'Випадкова локація',
-                  icon: Icons.casino_outlined,
-                  artwork: const MapReferenceIcon(MapReferenceGlyph.dice,
-                      size: 20, color: Color(0xFFD4A017)),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => const ScalableLocationsScreen(
-                            mode: ScalableLocationListMode.adventure)),
-                  ),
-                ),
-                additionalToolbarActions: MapQuickActions(
-                  onAdd: () => _pickLocationThenCreate(
-                    context,
-                    ref,
+              final filters = ref.watch(mapFilterProvider).applied;
+              final query = MapViewportQuery(
+                bounds: bounds,
+                category: filters.category == 'all' ? null : filters.category,
+                userLatitude: currentPosition.latitude,
+                userLongitude: currentPosition.longitude,
+                maximumDistanceMeters: filters.maximumDistanceMeters,
+                minimumRating: filters.minimumRating,
+                openNow: filters.openNow,
+                familyOnly: filters.familyOnly,
+                sort: filters.rpcSort,
+              );
+              final locations = ref.watch(viewportLocationsProvider(query));
+              final freshLocations = locations.asData?.value.items;
+              if (freshLocations != null) _lastLocations = freshLocations;
+              final visibleLocations = freshLocations ?? _lastLocations;
+              final carouselEntries = _carouselFor(visibleLocations,
+                  currentPosition.latitude, currentPosition.longitude);
+              final showCarousel = carouselEntries.isNotEmpty;
+              final routeActive = route.status != RouteStatus.idle;
+              final carouselVisible = showCarousel && !routeActive;
+              assert(() {
+                if (freshLocations != null) {
+                  debugPrint('[MAP_DEBUG] rows=${freshLocations.length} '
+                      'bbox=${bounds.minLatitude},${bounds.minLongitude},'
+                      '${bounds.maxLatitude},${bounds.maxLongitude} '
+                      'category=${query.category ?? "NULL"}');
+                }
+                return true;
+              }());
+              return Stack(
+                children: [
+                  ClusteredLocationMap(
+                    key: const Key('stable_viewport_map'),
                     initialTarget: LatLng(
                       currentPosition.latitude,
                       currentPosition.longitude,
                     ),
-                  ),
-                  onRecordRoute: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      fullscreenDialog: true,
-                      builder: (_) => const GpsRecordingMapScreen(),
+                    userPosition: LatLng(
+                      currentPosition.latitude,
+                      currentPosition.longitude,
+                    ),
+                    locations: visibleLocations,
+                    polylines: route.hasRoute
+                        ? {
+                            Polyline(
+                              polylineId: const PolylineId('active_route'),
+                              points: route.points
+                                  .map((point) => LatLng(
+                                        point.latitude,
+                                        point.longitude,
+                                      ))
+                                  .toList(growable: false),
+                              color: Theme.of(context).colorScheme.primary,
+                              width: 6,
+                              startCap: Cap.roundCap,
+                              endCap: Cap.roundCap,
+                            ),
+                          }
+                        : const <Polyline>{},
+                    onLocationTap: (location) {
+                      setState(() => _selectedLocationId = location.id);
+                      _showLocationDetails(context, ref, location);
+                    },
+                    onLongPress: (point) =>
+                        _handleMapLongPress(context, ref, point),
+                    onViewportChanged: (visible) {
+                      final next = MapViewportBounds(
+                        minLatitude: visible.southwest.latitude,
+                        minLongitude: visible.southwest.longitude,
+                        maxLatitude: visible.northeast.latitude,
+                        maxLongitude: visible.northeast.longitude,
+                      );
+                      if (_viewport == null ||
+                          next.materiallyDiffersFrom(_viewport!)) {
+                        setState(() => _viewport = next);
+                      }
+                    },
+                    compactToolbar: true,
+                    toolbarBottomInset: routeActive
+                        ? routeCardToolbarInset(_routeCardHeight,
+                            maxInset: _maxToolbarInset(context))
+                        : carouselVisible
+                            ? carouselMapBottomPadding(
+                                    shown: true, expanded: _carouselExpanded) +
+                                8
+                            : 16,
+                    // Google's logo and attribution stay above the carousel or
+                    // the route card.
+                    bottomMapPadding: routeActive
+                        ? routeCardMapBottomPadding(_routeCardHeight)
+                        : carouselMapBottomPadding(
+                            shown: carouselVisible,
+                            expanded: _carouselExpanded),
+                    // The header is excluded from the map area while a route is
+                    // shown, so the fit starts below it (and below the card).
+                    topMapPadding: routeActive
+                        ? MediaQuery.paddingOf(context).top + 64
+                        : 0,
+                    fitRequest: routeActive ? _routeFit.request : null,
+                    userLocationIcon: travelerIcon,
+                    userLocationColor: travelerSettings.color.color,
+                    // The one primary action; everything that used to be a
+                    // separate floating button is an entry of its menu.
+                    additionalToolbarActions: MapCreateMenuButton(
+                      actions: [
+                        MapMenuAction(
+                          key: const Key('map_menu_add_place'),
+                          label: 'Додати місце',
+                          icon: Icons.add_location_alt_outlined,
+                          onSelected: () => _pickLocationThenCreate(
+                            context,
+                            ref,
+                            initialTarget: LatLng(
+                              currentPosition.latitude,
+                              currentPosition.longitude,
+                            ),
+                          ),
+                        ),
+                        MapMenuAction(
+                          key: const Key('gps_record_route_action'),
+                          label: 'Записати маршрут',
+                          icon: Icons.fiber_manual_record,
+                          onSelected: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              fullscreenDialog: true,
+                              builder: (_) => const GpsRecordingMapScreen(),
+                            ),
+                          ),
+                        ),
+                        MapMenuAction(
+                          key: const Key('gps_journey_history_action'),
+                          label: 'Історія подорожей',
+                          icon: Icons.history,
+                          onSelected: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const GpsJourneyHistoryScreen(),
+                            ),
+                          ),
+                        ),
+                        MapMenuAction(
+                          key: const Key('map_menu_nearby'),
+                          label: 'Поруч',
+                          icon: Icons.near_me_outlined,
+                          onSelected: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const ScalableLocationsScreen(
+                                  mode: ScalableLocationListMode.nearby),
+                            ),
+                          ),
+                        ),
+                        MapMenuAction(
+                          key: const Key('map_menu_random'),
+                          label: 'Випадкова локація',
+                          icon: Icons.casino_outlined,
+                          onSelected: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const ScalableLocationsScreen(
+                                  mode: ScalableLocationListMode.adventure),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  onOpenHistory: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const GpsJourneyHistoryScreen(),
+                  if (route.status != RouteStatus.idle)
+                    Positioned(
+                      left: 16,
+                      right: 16,
+                      bottom: routeCardBottomMargin,
+                      // Measured, so the buttons and the Google logo clear the
+                      // card at any text scale or screen size.
+                      child: MeasuredHeight(
+                        epoch: route.status,
+                        onHeight: _onRouteCardHeight,
+                        child: _RouteCard(
+                          route: route,
+                          onShowWholeRoute: _showWholeRoute,
+                        ),
+                      ),
+                    )
+                  else if (showCarousel)
+                    // Real nearby locations as compact cards; collapsible so the
+                    // map is never permanently covered.
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 8,
+                      child: MapLocationCarousel(
+                        entries: carouselEntries,
+                        expanded: _carouselExpanded,
+                        onToggle: () => setState(
+                            () => _carouselExpanded = !_carouselExpanded),
+                        selectedId: _selectedLocationId,
+                        onSelected: (location) {
+                          setState(() => _selectedLocationId = location.id);
+                          _showLocationDetails(context, ref, location);
+                        },
+                      ),
                     ),
-                  ),
-                ),
-                overlays: [
-                  const Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: _CategoryFilterBar(),
-                  ),
+                  if (locations.isLoading && visibleLocations.isEmpty)
+                    Positioned(
+                      top: MediaQuery.paddingOf(context).top + 60,
+                      left: 0,
+                      right: 0,
+                      child: const LinearProgressIndicator(minHeight: 2),
+                    ),
+                  if (locations.hasError && visibleLocations.isEmpty)
+                    Positioned(
+                      left: 16,
+                      right: 16,
+                      bottom: 16,
+                      child: _InlineMapError(
+                        onRetry: () =>
+                            ref.invalidate(viewportLocationsProvider(query)),
+                      ),
+                    ),
+                  if (!isOnline)
+                    Positioned(
+                      top: MediaQuery.paddingOf(context).top + 60,
+                      left: 16,
+                      right: 16,
+                      child: const _OfflineBanner(),
+                    ),
                 ],
-              ),
-              if (route.status != RouteStatus.idle)
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: 24,
-                  child: _RouteCard(route: route),
-                ),
-              if (locations.isLoading && visibleLocations.isEmpty)
-                const Positioned(
-                  top: 56,
-                  left: 16,
-                  right: 16,
-                  child: LinearProgressIndicator(minHeight: 2),
-                ),
-              if (locations.hasError && visibleLocations.isEmpty)
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: 16,
-                  child: _InlineMapError(
-                    onRetry: () =>
-                        ref.invalidate(viewportLocationsProvider(query)),
-                  ),
-                ),
-              if (!isOnline)
-                const Positioned(
-                  top: 64,
-                  left: 16,
-                  right: 16,
-                  child: _OfflineBanner(),
-                ),
-            ],
-          );
-        },
-        loading: () => ClusteredLocationMap(
-          initialTarget: const LatLng(50.4501, 30.5234),
-          userPosition: null,
-          locations: const [],
-          polylines: const {},
-          onLocationTap: (_) {},
-          onLongPress: (point) => _handleMapLongPress(context, ref, point),
-          onViewportChanged: (_) {},
-        ),
-        error: (error, stackTrace) => Stack(
-          children: [
-            ClusteredLocationMap(
+              );
+            },
+            loading: () => ClusteredLocationMap(
               initialTarget: const LatLng(50.4501, 30.5234),
               userPosition: null,
               locations: const [],
@@ -491,54 +614,69 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               onLongPress: (point) => _handleMapLongPress(context, ref, point),
               onViewportChanged: (_) {},
             ),
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 16,
-              child: Material(
-                borderRadius: BorderRadius.circular(12),
-                color: Theme.of(context).colorScheme.surfaceContainerHigh,
-                child: ListTile(
-                  leading: const Icon(Icons.location_off_outlined),
-                  title: const Text('Геолокація недоступна'),
-                  subtitle: const Text(
-                    'Перевірте дозвіл або служби геолокації.',
-                    maxLines: 2,
-                  ),
-                  trailing: IconButton(
-                    tooltip: 'Спробувати ще раз',
-                    onPressed: () => ref.invalidate(currentPositionProvider),
-                    icon: const Icon(Icons.refresh),
+            error: (error, stackTrace) => Stack(
+              children: [
+                ClusteredLocationMap(
+                  initialTarget: const LatLng(50.4501, 30.5234),
+                  userPosition: null,
+                  locations: const [],
+                  polylines: const {},
+                  onLocationTap: (_) {},
+                  onLongPress: (point) =>
+                      _handleMapLongPress(context, ref, point),
+                  onViewportChanged: (_) {},
+                ),
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 16,
+                  child: Material(
+                    borderRadius: BorderRadius.circular(12),
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                    child: ListTile(
+                      leading: const Icon(Icons.location_off_outlined),
+                      title: const Text('Геолокація недоступна'),
+                      subtitle: const Text(
+                        'Перевірте дозвіл або служби геолокації.',
+                        maxLines: 2,
+                      ),
+                      trailing: IconButton(
+                        tooltip: 'Спробувати ще раз',
+                        onPressed: () =>
+                            ref.invalidate(currentPositionProvider),
+                        icon: const Icon(Icons.refresh),
+                      ),
+                    ),
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+        // Floating header over the full-screen map.
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: MapTopBar(
+            subtitle: _lastLocations.isEmpty
+                ? null
+                : 'На карті: ${_lastLocations.length}',
+            onSearch: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const LocationSearchScreen(),
               ),
             ),
-          ],
+            onOpenAdvancedFilters: () => _showMapFilters(context, ref),
+            unreadCount: ref.watch(unreadNotificationsCountProvider),
+            onOpenNotifications: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const NotificationsScreen(),
+              ),
+            ),
+          ),
         ),
-      ),
-    );
-  }
-}
-
-class _NotificationsButton extends ConsumerWidget {
-  const _NotificationsButton();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final unreadCount = ref.watch(unreadNotificationsCountProvider);
-    return IconButton(
-      style: _mapAppBarActionStyle,
-      tooltip: 'Сповіщення',
-      onPressed: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const NotificationsScreen(),
-        ),
-      ),
-      icon: Badge(
-        isLabelVisible: unreadCount > 0,
-        label: Text(unreadCount > 99 ? '99+' : '$unreadCount'),
-        child: const Icon(Icons.notifications_outlined),
-      ),
+      ]),
     );
   }
 }
@@ -561,8 +699,7 @@ class MapSearchAction extends StatelessWidget {
         key: const Key('map_search_action'),
         tooltip: 'Пошук',
         onPressed: onPressed,
-        style: _mapAppBarActionStyle,
-        icon: const Icon(Icons.search, color: Color(0xFFD4A017)),
+        icon: const Icon(Icons.search),
       );
 }
 
@@ -644,66 +781,100 @@ class MapLocationPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final category = locationCategoryPresentation(location.category);
+    final rating = carouselRatingLabel(location.rating);
+    final hasPhoto = location.imageUrl?.trim().isNotEmpty == true;
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 0, 18, 20),
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD4A017).withValues(alpha: .14),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(category.icon, color: const Color(0xFFD4A017)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(location.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleLarge),
-                    Text('${category.emoji} ${category.label}',
-                        style:
-                            Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: const Color(0xFFD4A017),
-                                )),
-                  ],
+            // The photo leads the sheet when the location has one.
+            if (hasPhoto) ...[
+              AspectRatio(
+                aspectRatio: 16 / 8,
+                child: LocationImage(
+                  location: location,
+                  borderRadius: BorderRadius.circular(AppRadii.lg),
                 ),
               ),
-            ]),
-            if (location.description?.isNotEmpty == true) ...[
-              const SizedBox(height: 12),
-              Text(location.description!,
-                  maxLines: 2, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: AppSpacing.md),
             ],
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
+            Text(location.title,
+                key: const Key('preview_title'),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            const SizedBox(height: AppSpacing.xs),
+            Row(
               children: [
-                FilledButton.icon(
-                  key: const Key('preview_open_details'),
-                  onPressed: onOpenDetails,
-                  icon: const Icon(Icons.arrow_forward_rounded),
-                  label: const Text('Детальніше'),
+                Icon(category.icon, size: 16, color: AppColors.accent),
+                const SizedBox(width: AppSpacing.xs),
+                Flexible(
+                  child: Text(category.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: AppColors.textSecondary)),
                 ),
-                OutlinedButton.icon(
-                  key: const Key('preview_route'),
-                  onPressed: onBuildRoute,
-                  icon: const Icon(Icons.directions_outlined),
-                  label: const Text('Маршрут'),
-                ),
+                if (rating != null) ...[
+                  const SizedBox(width: AppSpacing.md),
+                  Text(rating,
+                      key: const Key('preview_rating'),
+                      style: theme.textTheme.labelLarge),
+                ],
               ],
             ),
+            if (location.description?.isNotEmpty == true) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text(location.description!,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(color: AppColors.textSecondary)),
+            ],
+            const SizedBox(height: AppSpacing.lg),
+            // Side by side at normal text sizes; stacked (each full width) when
+            // the system text is enlarged, so a label never wraps inside a
+            // word. Labels are one line and never shrunk below readability.
+            LayoutBuilder(builder: (context, constraints) {
+              final stacked = constraints.maxWidth < 300 ||
+                  MediaQuery.textScalerOf(context).scale(14) > 14 * 1.15;
+              final route = OutlinedButton.icon(
+                key: const Key('preview_route'),
+                onPressed: onBuildRoute,
+                icon: const Icon(Icons.directions_outlined),
+                label: const Text('Маршрут', maxLines: 1, softWrap: false),
+              );
+              final details = FilledButton.icon(
+                key: const Key('preview_open_details'),
+                onPressed: onOpenDetails,
+                icon: const Icon(Icons.arrow_forward_rounded),
+                label: const Text('Детальніше', maxLines: 1, softWrap: false),
+              );
+              if (stacked) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    details,
+                    const SizedBox(height: AppSpacing.sm),
+                    route,
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: route),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(child: details),
+                ],
+              );
+            }),
           ],
         ),
       ),
@@ -1200,7 +1371,7 @@ class _LocationDetailsContentState
                       icon: const Icon(Icons.directions),
                       label: const Text('Маршрут'),
                       style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFD6A928),
+                          backgroundColor: AppColors.accent,
                           foregroundColor: const Color(0xFF142019),
                           minimumSize: const Size(0, 42)),
                     ),
@@ -1210,8 +1381,8 @@ class _LocationDetailsContentState
                       icon: const Icon(Icons.map_outlined),
                       label: const Text('Відкрити'),
                       style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFFD6A928),
-                          side: const BorderSide(color: Color(0xFFD6A928)),
+                          foregroundColor: AppColors.accent,
+                          side: const BorderSide(color: AppColors.accent),
                           minimumSize: const Size(0, 42)),
                     ),
                     IconButton.filledTonal(
@@ -1230,7 +1401,9 @@ class _LocationDetailsContentState
                           ? TextOverflow.visible
                           : TextOverflow.ellipsis,
                       style: const TextStyle(
-                          color: Color(0xFFD6DED9), fontSize: 14, height: 1.4)),
+                          color: AppColors.textPrimary,
+                          fontSize: 14,
+                          height: 1.4)),
                   TextButton(
                     onPressed: () => setState(
                         () => _descriptionExpanded = !_descriptionExpanded),
@@ -1244,7 +1417,7 @@ class _LocationDetailsContentState
                   const SizedBox(height: 12),
                   if (amenities.isEmpty)
                     const Text('Зручності не зазначені',
-                        style: TextStyle(color: Color(0xFF9EAAA4)))
+                        style: TextStyle(color: AppColors.textSecondary))
                   else
                     _AmenitiesGrid(keys: amenities),
                 ],
@@ -1260,7 +1433,7 @@ class _LocationDetailsContentState
                   const SizedBox(height: 9),
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     const Icon(Icons.location_on_outlined,
-                        color: Color(0xFFD6A928)),
+                        color: AppColors.accent),
                     const SizedBox(width: 8),
                     Expanded(
                         child: Text(location.address!,
@@ -1319,7 +1492,7 @@ class _LocationDetailsContentState
                       const Center(child: CircularProgressIndicator()),
                   error: (_, __) => const Text(
                       'Не вдалося завантажити відгуки.',
-                      style: TextStyle(color: Color(0xFF9EAAA4))),
+                      style: TextStyle(color: AppColors.textSecondary)),
                 ),
                 const SizedBox(height: 16),
                 FilledButton.tonalIcon(
@@ -1349,17 +1522,16 @@ class _LocationCategoryBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFFD4A017).withValues(alpha: .14),
+        color: AppColors.accent.withValues(alpha: .14),
         borderRadius: BorderRadius.circular(999),
-        border:
-            Border.all(color: const Color(0xFFD4A017).withValues(alpha: .35)),
+        border: Border.all(color: AppColors.accent.withValues(alpha: .35)),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(presentation.icon, size: 14, color: const Color(0xFFD4A017)),
+        Icon(presentation.icon, size: 14, color: AppColors.accent),
         const SizedBox(width: 4),
         Text(presentation.label,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: const Color(0xFFD4A017),
+                  color: AppColors.accent,
                   fontWeight: FontWeight.w700,
                 )),
       ]),
@@ -1389,7 +1561,7 @@ class _OwnerActionsRow extends StatelessWidget {
             key: const Key('location_details_edit_action'),
             tooltip: 'Редагувати локацію',
             onPressed: onEdit,
-            icon: const Icon(Icons.edit_outlined, color: Color(0xFFD6A928)),
+            icon: const Icon(Icons.edit_outlined, color: AppColors.accent),
           ),
           IconButton(
             key: const Key('location_details_delete_action'),
@@ -1438,9 +1610,9 @@ class _DetailsFactsRow extends StatelessWidget {
   Widget _fact(IconData icon, String label) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: const Color(0xFFD6A928), size: 18),
+          Icon(icon, color: AppColors.accent, size: 18),
           const SizedBox(width: 5),
-          Text(label, style: const TextStyle(color: Color(0xFFD6DED9))),
+          Text(label, style: const TextStyle(color: AppColors.textPrimary)),
         ],
       );
 }
@@ -1473,7 +1645,7 @@ class _AmenitiesGrid extends StatelessWidget {
               border: Border.all(color: const Color(0xFF30443B)),
             ),
             child: Column(children: [
-              Icon(value.$1, color: const Color(0xFFD6A928)),
+              Icon(value.$1, color: AppColors.accent),
               const SizedBox(height: 6),
               Text(value.$2,
                   textAlign: TextAlign.center,
@@ -1514,7 +1686,7 @@ class _OpeningHours extends StatelessWidget {
               SizedBox(
                   width: 34,
                   child: Text(entry.value,
-                      style: const TextStyle(color: Color(0xFF9EAAA4)))),
+                      style: const TextStyle(color: AppColors.textSecondary))),
               Text(text, style: const TextStyle(color: Colors.white)),
             ]),
           );
@@ -1833,12 +2005,10 @@ class MapFilterCategoryGrid extends StatelessWidget {
                 onTap: () => onSelected(entry.key),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: active
-                        ? const Color(0xFFD4A017)
-                        : const Color(0xFF14231D),
+                    color: active ? AppColors.accent : AppColors.surface,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: active ? const Color(0xFFD4A017) : Colors.white10,
+                      color: active ? AppColors.accent : Colors.white10,
                     ),
                   ),
                   padding:
@@ -1876,103 +2046,13 @@ class MapFilterCategoryGrid extends StatelessWidget {
       );
 }
 
-class _CategoryFilterBar extends ConsumerWidget {
-  const _CategoryFilterBar();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final selected = ref.watch(mapFilterProvider).applied.category;
-    return ColoredBox(
-      color: Colors.transparent,
-      child: Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: const Color(0xFF09120F),
-          border: Border.all(color: const Color(0x33294037)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: ListView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
-          // Display order only; the canonical registry and filter state are shared.
-          children: [
-            'all',
-            'nature',
-            'culture',
-            'entertainment',
-            'active_outdoors',
-            'viewpoints',
-            'historic',
-            'cafe',
-            'events',
-            'romance',
-            'shopping',
-            'kids',
-          ].map((key) {
-            final entry = locationCategoryDefinition(key);
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Tooltip(
-                message: entry.label,
-                child: Semantics(
-                  button: true,
-                  selected: selected == entry.key,
-                  label: entry.label,
-                  child: Material(
-                    clipBehavior: Clip.antiAlias,
-                    color: selected == entry.key
-                        ? entry.referenceColor.withValues(alpha: .25)
-                        : const Color(0xFF0B1512),
-                    shape: CircleBorder(
-                      side: BorderSide(
-                        color: selected == entry.key
-                            ? entry.referenceColor.withValues(alpha: .7)
-                            : const Color(0xFF23332D),
-                      ),
-                    ),
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: entry.key == 'all'
-                          ? () => showMapCategoriesSheet(context: context)
-                          : () => ref
-                              .read(mapFilterProvider.notifier)
-                              .selectCategory(entry.key),
-                      child: SizedBox.square(
-                        dimension: 34,
-                        child: Center(
-                          child: MapCategoryArtwork(
-                            category: entry.key,
-                            icon: entry.icon,
-                            color: entry.referenceColor,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }).toList(growable: false),
-        ),
-      ),
-    );
-  }
-}
-
-final ButtonStyle _mapAppBarActionStyle = IconButton.styleFrom(
-  minimumSize: const Size.square(32),
-  maximumSize: const Size.square(32),
-  iconSize: 18,
-  padding: const EdgeInsets.all(6),
-  backgroundColor: Colors.transparent,
-  side: const BorderSide(color: Colors.white24),
-  shape: const CircleBorder(),
-);
-
 class _RouteCard extends ConsumerWidget {
-  const _RouteCard({required this.route});
+  const _RouteCard({required this.route, this.onShowWholeRoute});
 
   final RouteState route;
+
+  /// Re-frames the whole route on the map (the "Увесь маршрут" action).
+  final VoidCallback? onShowWholeRoute;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2028,6 +2108,17 @@ class _RouteCard extends ConsumerWidget {
                     ],
                   ),
                 ),
+                if (onShowWholeRoute != null)
+                  IconButton(
+                    key: const Key('route_show_all'),
+                    tooltip: 'Увесь маршрут',
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size.square(48),
+                      maximumSize: const Size.square(48),
+                    ),
+                    onPressed: onShowWholeRoute,
+                    icon: const Icon(Icons.zoom_out_map),
+                  ),
                 TextButton.icon(
                   onPressed: () => ref.read(routeProvider.notifier).clear(),
                   icon: const Icon(Icons.close),

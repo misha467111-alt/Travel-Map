@@ -6,14 +6,15 @@ import '../../achievements/presentation/achievements_tab.dart';
 import '../../friends/presentation/friends_screen.dart';
 import '../../gps/presentation/gps_active_recording_banner.dart';
 import '../../map/presentation/map_screen.dart';
-import '../../map/presentation/map_reference_icons.dart';
 import '../../notifications/presentation/notifications_screen.dart';
+import '../../personalization/personalization_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../profile/presentation/saved_screen.dart';
 import '../../social/presentation/user_profile_screen.dart';
 import 'scalable_locations_screen.dart';
 import 'chats_screen.dart';
 import 'settings_screen.dart';
+import '../../../core/theme/app_design.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   const MainNavigationScreen({super.key});
@@ -50,7 +51,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           children: [
             const GpsActiveRecordingBanner(),
             _index == 0
-                ? _MapBottomNavigation(
+                ? MapBottomNavigation(
                     onSelected: (value) => setState(() => _index = value),
                   )
                 : NavigationBar(
@@ -89,55 +90,108 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 }
 
-/// Compact map presentation; tab indices and the existing IndexedStack are shared.
-class _MapBottomNavigation extends StatelessWidget {
-  const _MapBottomNavigation({required this.onSelected});
+/// The map tab's bottom navigation: one rounded, floating panel with five
+/// outlined icons of one weight. The active tab is marked by the gold accent
+/// (icon, label and a faint rounded tint) only; tab indices and the existing
+/// IndexedStack are shared. Public only so a widget test can mount it
+/// without the full navigation shell.
+@visibleForTesting
+class MapBottomNavigation extends StatelessWidget {
+  const MapBottomNavigation({
+    super.key,
+    required this.onSelected,
+    this.selectedIndex = 0,
+  });
+
   final ValueChanged<int> onSelected;
+  final int selectedIndex;
+
+  static const _items = <(IconData, IconData, String)>[
+    (Icons.map_outlined, Icons.map, 'Карта'),
+    (Icons.explore_outlined, Icons.explore, 'Відкривай'),
+    (Icons.person_pin_circle_outlined, Icons.person_pin_circle, 'Пригода'),
+    (Icons.route_outlined, Icons.route, 'Маршрути'),
+    (Icons.person_outline, Icons.person, 'Профіль'),
+  ];
 
   @override
-  Widget build(BuildContext context) => Material(
-        color: const Color(0xFF09120F),
-        child: SafeArea(
-            top: false,
+  Widget build(BuildContext context) {
+    final active = Theme.of(context).colorScheme.primary;
+    final inactive = AppColors.textSecondary;
+    return ColoredBox(
+      color: AppColors.background,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md, AppSpacing.xs, AppSpacing.md, AppSpacing.sm),
+          child: Material(
+            key: const Key('map_nav_panel'),
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppRadii.sheet + 4),
+            clipBehavior: Clip.antiAlias,
             child: SizedBox(
               height: 60,
               child: Row(children: [
-                for (final (index, item) in const [
-                  (MapReferenceGlyph.map, 'Карта'),
-                  (MapReferenceGlyph.compass, 'Відкривай'),
-                  (MapReferenceGlyph.adventure, 'Пригода'),
-                  (MapReferenceGlyph.route, 'Маршрути'),
-                  (MapReferenceGlyph.profile, 'Профіль'),
-                ].indexed)
+                for (final (index, item) in _items.indexed)
                   Expanded(
-                      child: Semantics(
-                    selected: index == 0,
-                    button: true,
-                    child: InkWell(
-                      onTap: () => onSelected(index),
-                      child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            MapReferenceIcon(item.$1,
-                                size: 22,
-                                color: index == 0
-                                    ? const Color(0xFFD4A017)
-                                    : const Color(0xFFA3AAA3)),
-                            const SizedBox(height: 5),
-                            Text(item.$2,
+                    child: Semantics(
+                      selected: index == selectedIndex,
+                      button: true,
+                      label: item.$3,
+                      child: ExcludeSemantics(
+                        child: InkWell(
+                          key: Key('map_nav_$index'),
+                          onTap: () => onSelected(index),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // A faint rounded tint marks the active tab.
+                              Container(
+                                width: 44,
+                                height: 28,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: index == selectedIndex
+                                      ? active.withValues(alpha: 0.14)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  item.$1,
+                                  size: 22,
+                                  color: index == selectedIndex
+                                      ? active
+                                      : inactive,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                item.$3,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                    fontSize: 10,
-                                    height: 1,
-                                    fontWeight: FontWeight.w400,
-                                    color: index == 0
-                                        ? const Color(0xFFD4A017)
-                                        : const Color(0xFFA3AAA3))),
-                          ]),
+                                  fontSize: 11,
+                                  height: 1.1,
+                                  fontWeight: FontWeight.w500,
+                                  color: index == selectedIndex
+                                      ? active
+                                      : inactive,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                  )),
+                  ),
               ]),
-            )),
-      );
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 void openSecondarySection(BuildContext context, String value) {
@@ -157,6 +211,7 @@ void openSecondarySection(BuildContext context, String value) {
         body: AchievementsTab()),
     'invites' => const _InvitesScreen(),
     'notifications' => const NotificationsScreen(),
+    'personalization' => const PersonalizationScreen(),
     'settings' => const SettingsScreen(),
     _ => const SettingsScreen(),
   };
@@ -212,13 +267,13 @@ class _InvitesScreenState extends State<_InvitesScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF14231D),
+                      color: AppColors.surface,
                       borderRadius: BorderRadius.circular(11),
                       border: Border.all(color: Colors.white10),
                     ),
                     child: Row(children: [
                       const Icon(Icons.person_add_alt_rounded,
-                          size: 26, color: Color(0xFFD4A017)),
+                          size: 26, color: AppColors.accent),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -230,7 +285,7 @@ class _InvitesScreenState extends State<_InvitesScreen> {
                                     .titleLarge
                                     ?.copyWith(
                                       fontSize: 20,
-                                      color: const Color(0xFFD4A017),
+                                      color: AppColors.accent,
                                       fontWeight: FontWeight.w600,
                                     )),
                             const Text('Доступно запрошень',
@@ -258,7 +313,7 @@ class _InvitesScreenState extends State<_InvitesScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0D1C17),
+                        color: AppColors.surface,
                         borderRadius: BorderRadius.circular(11),
                         border: Border.all(color: const Color(0x66D4A017)),
                       ),
@@ -307,7 +362,7 @@ class _TopTravelersScreen extends StatelessWidget {
                   padding: EdgeInsets.all(28),
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.leaderboard_outlined,
-                        size: 46, color: Color(0xFFD4A017)),
+                        size: 46, color: AppColors.accent),
                     SizedBox(height: 12),
                     Text('Рейтинг поки порожній'),
                   ]),
@@ -330,7 +385,7 @@ class _TopTravelersScreen extends StatelessWidget {
                       child: ListTile(
                           leading: CircleAvatar(
                             backgroundColor: index < 3
-                                ? const Color(0xFFD4A017)
+                                ? AppColors.accent
                                 : const Color(0xFF20362C),
                             foregroundColor:
                                 index < 3 ? Colors.black : Colors.white,
@@ -347,7 +402,7 @@ class _TopTravelersScreen extends StatelessWidget {
                               overflow: TextOverflow.ellipsis),
                           trailing: Text('${row['xp'] ?? 0} XP',
                               style: const TextStyle(
-                                  color: Color(0xFFD4A017),
+                                  color: AppColors.accent,
                                   fontWeight: FontWeight.w600)),
                           onTap: () => Navigator.push(
                               context,

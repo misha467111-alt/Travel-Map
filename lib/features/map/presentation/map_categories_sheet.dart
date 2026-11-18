@@ -20,8 +20,8 @@ Future<void> showMapCategoriesSheet({
 class MapCategoriesSheet extends ConsumerWidget {
   const MapCategoriesSheet({super.key});
 
-  static const _background = Color(0xFF0D1C17);
-  static const _tileBackground = Color(0xFF10221B);
+  static const _background = AppColors.surface;
+  static const _tileBackground = AppColors.surface;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -61,7 +61,7 @@ class MapCategoriesSheet extends ConsumerWidget {
                                 ?.copyWith(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,
-                                  color: const Color(0xFFF5F0E6),
+                                  color: AppColors.textPrimary,
                                 ),
                           ),
                         ),
@@ -112,7 +112,7 @@ class MapCategoriesSheet extends ConsumerWidget {
                                   border: Border.all(
                                     color: isSelected
                                         ? category.referenceColor
-                                        : const Color(0xFF294037),
+                                        : AppColors.border,
                                   ),
                                   boxShadow: isSelected
                                       ? const [
@@ -145,7 +145,7 @@ class MapCategoriesSheet extends ConsumerWidget {
                                           height: 1.05,
                                           fontSize: 9,
                                           fontWeight: FontWeight.w500,
-                                          color: const Color(0xFFF5F0E6),
+                                          color: AppColors.textPrimary,
                                         ),
                                       ),
                                     ),

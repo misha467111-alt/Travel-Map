@@ -5,6 +5,7 @@ import '../domain/location_model.dart';
 import '../providers/comments_provider.dart';
 import '../providers/network_provider.dart';
 import 'location_card.dart';
+import '../../../core/theme/app_design.dart';
 
 typedef ReviewSubmitter = Future<void> Function(String text, int? rating);
 
@@ -142,9 +143,7 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                             selected
                                 ? Icons.star_rounded
                                 : Icons.star_border_rounded,
-                            color: selected
-                                ? const Color(0xFFD4A017)
-                                : Colors.white38,
+                            color: selected ? AppColors.accent : Colors.white38,
                           ),
                         ),
                       );
@@ -173,13 +172,13 @@ class _ReviewScreenState extends ConsumerState<ReviewScreen> {
                     errorText: _validationError,
                     alignLabelWithHint: true,
                     filled: true,
-                    fillColor: const Color(0xFF14231D),
+                    fillColor: AppColors.surface,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(11),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(11),
-                      borderSide: const BorderSide(color: Color(0xFFD4A017)),
+                      borderSide: const BorderSide(color: AppColors.accent),
                     ),
                   ),
                 ),
@@ -225,7 +224,7 @@ class ReviewLocationSummary extends StatelessWidget {
       key: const Key('review_location_summary'),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFF14231D),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(11),
         border: Border.all(color: Colors.white10),
       ),
@@ -250,7 +249,7 @@ class ReviewLocationSummary extends StatelessWidget {
             const SizedBox(height: 2),
             Text('${category.emoji} ${category.label}',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: const Color(0xFFD4A017),
+                      color: AppColors.accent,
                     )),
           ]),
         ),

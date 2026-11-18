@@ -5,6 +5,7 @@ import '../data/routes_repository.dart';
 import '../domain/location_model.dart';
 import '../domain/route.dart';
 import '../providers/route_provider.dart';
+import '../../../core/theme/app_design.dart';
 
 class RoutesContent extends StatelessWidget {
   const RoutesContent({
@@ -172,11 +173,11 @@ class TravelRouteCard extends StatelessWidget {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFD4A017).withValues(alpha: .14),
+                      color: AppColors.accent.withValues(alpha: .14),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(Icons.route_rounded,
-                        color: Color(0xFFD4A017)),
+                        color: AppColors.accent),
                   ),
                   const SizedBox(width: 9),
                   Expanded(
@@ -249,7 +250,7 @@ class RouteMetric extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 17, color: const Color(0xFFD4A017)),
+        Icon(icon, size: 17, color: AppColors.accent),
         const SizedBox(width: 5),
         Text(label, style: Theme.of(context).textTheme.labelMedium),
       ]);
@@ -279,13 +280,13 @@ class RoutesEmptyState extends StatelessWidget {
         key: const Key('saved_routes_empty'),
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: const Color(0xFF14231D),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white10),
         ),
         child: const Row(children: [
           Icon(Icons.bookmark_border_rounded,
-              color: Color(0xFFD4A017), size: 22),
+              color: AppColors.accent, size: 22),
           SizedBox(width: 8),
           Expanded(
             child:
@@ -308,12 +309,12 @@ class _ActiveRouteEmpty extends StatelessWidget {
         key: const Key('active_route_empty'),
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: const Color(0xFF14231D),
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.white10),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Icon(Icons.route_outlined, color: Color(0xFFD4A017), size: 23),
+          const Icon(Icons.route_outlined, color: AppColors.accent, size: 23),
           const SizedBox(height: 5),
           Text('Активного маршруту немає',
               style: Theme.of(context)

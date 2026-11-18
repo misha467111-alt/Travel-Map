@@ -6,9 +6,9 @@ void main() {
   test('global Travel theme uses the approved palette and compact hierarchy',
       () {
     final theme = buildAppTheme();
-    expect(theme.colorScheme.primary, const Color(0xFFD4A017));
-    expect(theme.scaffoldBackgroundColor, const Color(0xFF07120F));
-    expect(theme.appBarTheme.backgroundColor, const Color(0xFF071A15));
+    expect(theme.colorScheme.primary, AppColors.accent);
+    expect(theme.scaffoldBackgroundColor, AppColors.background);
+    expect(theme.appBarTheme.backgroundColor, AppColors.background);
     expect(theme.navigationBarTheme.height, 64);
     expect(theme.cardTheme.elevation, 0);
   });

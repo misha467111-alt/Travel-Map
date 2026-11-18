@@ -7,6 +7,7 @@ import '../../map/presentation/map_screen.dart';
 import '../../map/providers/locations_provider.dart';
 import '../../navigation/presentation/scalable_locations_screen.dart';
 import '../../social/providers/public_profile_provider.dart';
+import '../../../core/theme/app_design.dart';
 
 class SavedScreen extends ConsumerWidget {
   const SavedScreen({super.key});
@@ -124,7 +125,7 @@ class SavedContent extends StatelessWidget {
               padding: const EdgeInsets.all(24),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 const Icon(Icons.cloud_off_outlined,
-                    size: 42, color: Color(0xFFD4A017)),
+                    size: 42, color: AppColors.accent),
                 const SizedBox(height: 12),
                 const Text('Не вдалося завантажити закладки'),
                 if (onRefresh != null) ...[
@@ -156,13 +157,13 @@ class SavedEmptyState extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 320),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFF14231D),
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.white10),
             ),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               const Icon(Icons.bookmark_border_rounded,
-                  size: 34, color: Color(0xFFD4A017)),
+                  size: 34, color: AppColors.accent),
               const SizedBox(height: 8),
               Text('Закладок поки немає',
                   textAlign: TextAlign.center,

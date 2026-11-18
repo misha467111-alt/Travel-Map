@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/routes_repository.dart';
 import '../domain/route.dart';
 import '../providers/route_provider.dart';
+import '../../../core/theme/app_design.dart';
 
 class RouteCreationScreen extends ConsumerStatefulWidget {
   const RouteCreationScreen({
@@ -59,7 +60,7 @@ class _RouteCreationScreenState extends ConsumerState<RouteCreationScreen> {
     const size = 108.0;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    final paint = Paint()..color = const Color(0xFFD4A017);
+    final paint = Paint()..color = AppColors.accent;
     canvas.drawCircle(const Offset(size / 2, size / 2), 44, paint);
     canvas.drawCircle(
       const Offset(size / 2, size / 2),
@@ -67,13 +68,13 @@ class _RouteCreationScreenState extends ConsumerState<RouteCreationScreen> {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 7
-        ..color = const Color(0xFF071713),
+        ..color = AppColors.background,
     );
     final painter = TextPainter(
       text: TextSpan(
         text: '$number',
         style: const TextStyle(
-          color: Color(0xFF071713),
+          color: AppColors.background,
           fontSize: 46,
           fontWeight: FontWeight.w900,
         ),
@@ -226,7 +227,7 @@ class _RouteCreationScreenState extends ConsumerState<RouteCreationScreen> {
           points: route.segments[index].points
               .map((point) => LatLng(point.latitude, point.longitude))
               .toList(growable: false),
-          color: const Color(0xFFD4A017),
+          color: AppColors.accent,
           width: 6,
           patterns: route.segments[index].isFallback ||
                   route.transportMode == RouteTransportMode.walking

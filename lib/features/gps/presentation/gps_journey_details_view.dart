@@ -10,6 +10,7 @@ import '../recording/gps_journey_details.dart';
 import '../recording/gps_journey_statistics.dart';
 import 'gps_journey_history_view.dart' show formatGpsHistoryDate;
 import 'gps_journey_photos.dart';
+import 'gps_journey_replay_screen.dart';
 import 'gps_journey_summary_view.dart';
 import 'gps_live_moments.dart';
 import 'gps_sync_badge.dart';
@@ -73,6 +74,7 @@ class GpsJourneyDetailsBody extends ConsumerWidget {
             final liveRoute =
                 ref.watch(gpsJourneyDetailsRouteProvider(args)).value;
             return _DetailsContent(
+              ownerId: ownerId,
               details: details,
               syncStatus: (liveRoute ?? details.route).syncStatus,
             );
@@ -96,8 +98,13 @@ class _Message extends StatelessWidget {
 }
 
 class _DetailsContent extends StatelessWidget {
-  const _DetailsContent({required this.details, required this.syncStatus});
+  const _DetailsContent({
+    required this.ownerId,
+    required this.details,
+    required this.syncStatus,
+  });
 
+  final String ownerId;
   final GpsJourneyDetails details;
   final String syncStatus;
 
@@ -144,6 +151,26 @@ class _DetailsContent extends StatelessWidget {
             ),
           ),
         ),
+        if (details.points.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 0),
+              child: FilledButton.icon(
+                key: const Key('gps_details_replay_button'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => GpsJourneyReplayScreen(
+                      ownerId: ownerId,
+                      routeId: route.id,
+                    ),
+                  ),
+                ),
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Відтворити'),
+              ),
+            ),
+          ),
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),

@@ -18,6 +18,7 @@ class GpsRecordingStatusCard extends StatelessWidget {
     required this.uiState,
     this.sync,
     this.onRetrySync,
+    this.onRetryStream,
     this.now = DateTime.now,
   });
 
@@ -29,14 +30,26 @@ class GpsRecordingStatusCard extends StatelessWidget {
   /// itself.
   final GpsSyncUiState? sync;
   final VoidCallback? onRetrySync;
+
+  /// Set only while an ACTIVE recording's GPS stream reported an error: the
+  /// recording (and Pause/Finish) continue, this re-subscribes the same
+  /// session.
+  final VoidCallback? onRetryStream;
   final DateTime Function() now;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final dotColor = switch (uiState.status) {
+      GpsRecordingStatus.recording => const Color(0xFF4CAF50),
+      GpsRecordingStatus.paused => theme.colorScheme.primary,
+      _ => theme.colorScheme.onSurfaceVariant,
+    };
     return Card(
+      color: theme.cardTheme.color?.withValues(alpha: 0.94),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.md),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -47,16 +60,49 @@ class GpsRecordingStatusCard extends StatelessWidget {
             // narrow widths/larger text scales -- caught by this phase's
             // own C18/C19 responsive tests. Stacking removes the risk
             // entirely rather than fighting it with ever-smaller flex.
-            Text(
-              uiState.statusLabel,
-              key: const Key('gps_status_card_label'),
-              style: theme.textTheme.titleMedium,
+            Row(
+              children: [
+                // Status is never colour-only: the label always accompanies
+                // the dot.
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration:
+                      BoxDecoration(color: dotColor, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    uiState.statusLabel,
+                    key: const Key('gps_status_card_label'),
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+              ],
             ),
             if (sync != null) ...[
               const SizedBox(height: AppSpacing.xs),
               GpsSyncBadge(sync: sync!, onRetry: onRetrySync),
             ],
-            const SizedBox(height: AppSpacing.lg),
+            if (onRetryStream != null) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Row(
+                key: const Key('gps_stream_error_row'),
+                children: [
+                  Icon(Icons.gps_off, size: 18, color: theme.colorScheme.error),
+                  const SizedBox(width: AppSpacing.sm),
+                  const Expanded(
+                    child: Text('Помилка GPS-сигналу, точки збережено'),
+                  ),
+                  TextButton(
+                    key: const Key('gps_stream_retry_button'),
+                    onPressed: onRetryStream,
+                    child: const Text('Повторити'),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
             GpsRecordingStats(
               stats: uiState.stats,
               isTicking: uiState.status == GpsRecordingStatus.recording,

@@ -12,6 +12,7 @@ import '../providers/locations_provider.dart';
 import '../../social/providers/public_profile_provider.dart';
 import 'location_card.dart';
 import 'map_screen.dart';
+import '../../../core/theme/app_design.dart';
 
 typedef SearchPageLoader = Future<LocationPage> Function({
   LocationCursor? cursor,
@@ -194,7 +195,7 @@ class _LocationSearchScreenState extends ConsumerState<LocationSearchScreen> {
               key: const Key('search_cancel_action'),
               onPressed: () => Navigator.of(context).pop(),
               style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFFD4A017),
+                foregroundColor: AppColors.accent,
                 minimumSize: const Size(0, 36),
                 padding: const EdgeInsets.symmetric(horizontal: 12),
               ),
@@ -406,7 +407,7 @@ class TravelSearchField extends StatelessWidget {
                       padding: EdgeInsets.zero,
                     ),
               filled: true,
-              fillColor: const Color(0xFF14231D),
+              fillColor: AppColors.surface,
               contentPadding: const EdgeInsets.symmetric(vertical: 8),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(11),
@@ -414,7 +415,7 @@ class TravelSearchField extends StatelessWidget {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(11),
-                borderSide: const BorderSide(color: Color(0xFFD4A017)),
+                borderSide: const BorderSide(color: AppColors.accent),
               ),
             ),
           ),
@@ -456,7 +457,7 @@ class TravelEmptyState extends StatelessWidget {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(32),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, size: 48, color: const Color(0xFFD4A017)),
+            Icon(icon, size: 48, color: AppColors.accent),
             const SizedBox(height: 14),
             Text(title,
                 textAlign: TextAlign.center,
@@ -498,7 +499,7 @@ class _SearchShortcutRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 9),
           child: Row(
             children: [
-              Icon(icon, size: 16, color: const Color(0xFFD4A017)),
+              Icon(icon, size: 16, color: AppColors.accent),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(

@@ -5,6 +5,7 @@ import '../../map/providers/locations_provider.dart';
 import '../domain/friend_models.dart';
 import '../providers/friends_provider.dart';
 import '../../social/presentation/user_profile_screen.dart';
+import '../../../core/theme/app_design.dart';
 
 class FriendsScreen extends ConsumerWidget {
   const FriendsScreen({super.key});
@@ -205,7 +206,7 @@ class _AsyncList<T> extends StatelessWidget {
               padding: const EdgeInsets.all(28),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 const Icon(Icons.people_outline,
-                    size: 44, color: Color(0xFFD4A017)),
+                    size: 44, color: AppColors.accent),
                 const SizedBox(height: 12),
                 Text(emptyMessage, textAlign: TextAlign.center),
               ]),

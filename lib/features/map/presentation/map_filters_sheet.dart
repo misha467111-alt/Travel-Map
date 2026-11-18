@@ -5,6 +5,7 @@ import '../domain/location_categories.dart';
 import '../domain/location_query.dart';
 import '../providers/locations_provider.dart';
 import '../providers/map_filter_provider.dart';
+import '../../../core/theme/app_design.dart';
 
 class MapFiltersSheet extends ConsumerWidget {
   const MapFiltersSheet(
@@ -17,9 +18,9 @@ class MapFiltersSheet extends ConsumerWidget {
   final double? userLatitude;
   final double? userLongitude;
 
-  static const _gold = Color(0xFFD4A017);
+  static const _gold = AppColors.accent;
   static const _background = Color(0xFF08110F);
-  static const _card = Color(0xFF101A17);
+  static const _card = AppColors.background;
 
   MapViewportQuery _query(MapFilterState value) => MapViewportQuery(
         bounds: bounds,
@@ -105,7 +106,7 @@ class MapFiltersSheet extends ConsumerWidget {
                               border: Border.all(
                                 color: selected
                                     ? category.referenceColor
-                                    : const Color(0xFF273630),
+                                    : AppColors.border,
                               ),
                             ),
                             child: Column(
@@ -121,7 +122,7 @@ class MapFiltersSheet extends ConsumerWidget {
                                     style: const TextStyle(
                                         fontSize: 9,
                                         height: 1.02,
-                                        color: Color(0xFFF5F0E6))),
+                                        color: AppColors.textPrimary)),
                               ],
                             ),
                           ),
@@ -250,7 +251,7 @@ class MapFiltersSheet extends ConsumerWidget {
             DecoratedBox(
               decoration: const BoxDecoration(
                 color: _background,
-                border: Border(top: BorderSide(color: Color(0xFF273630))),
+                border: Border(top: BorderSide(color: AppColors.border)),
               ),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
@@ -267,7 +268,7 @@ class MapFiltersSheet extends ConsumerWidget {
                           },
                     style: FilledButton.styleFrom(
                       backgroundColor: _gold.withValues(alpha: .72),
-                      foregroundColor: const Color(0xFF171106),
+                      foregroundColor: AppColors.onAccent,
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8)),
                     ),
@@ -312,10 +313,9 @@ class _Choice extends StatelessWidget {
           padding: EdgeInsets.zero,
           minimumSize: const Size(0, 32),
           backgroundColor:
-              selected ? const Color(0x665A420D) : const Color(0xFF101A17),
-          side: BorderSide(
-              color:
-                  selected ? const Color(0xFFD4A017) : const Color(0xFF273630)),
+              selected ? const Color(0x665A420D) : AppColors.background,
+          side:
+              BorderSide(color: selected ? AppColors.accent : AppColors.border),
         ),
         child: Text(label, style: const TextStyle(fontSize: 10)),
       );
@@ -338,7 +338,7 @@ class _SwitchRow extends StatelessWidget {
             child: Switch(
                 value: value,
                 onChanged: onChanged,
-                activeTrackColor: const Color(0xFFD4A017)),
+                activeTrackColor: AppColors.accent),
           ),
         ]),
       );

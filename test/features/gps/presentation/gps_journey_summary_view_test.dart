@@ -228,4 +228,78 @@ void main() {
       }
     }
   });
+
+  group('Phase 1 polish summary', () {
+    testWidgets('U03 distance and total time are the primary metrics',
+        (tester) async {
+      await tester.pumpWidget(_wrap(GpsJourneySummaryView(
+        summary: _summary(),
+        onDone: () {},
+      )));
+      expect(find.byKey(const Key('gps_summary_distance')), findsOneWidget);
+      expect(find.byKey(const Key('gps_summary_duration')), findsOneWidget);
+      expect(find.text('12.35 км'), findsOneWidget);
+      expect(find.text('2 год 30 хв'), findsOneWidget);
+      expect(find.text('Записано GPS-точок: 10'), findsOneWidget);
+      expect(find.byKey(const Key('gps_summary_open_button')), findsNothing);
+      expect(find.byKey(const Key('gps_summary_sync_section')), findsNothing);
+    });
+
+    testWidgets('U04 zero GPS points is stated honestly', (tester) async {
+      await tester.pumpWidget(_wrap(GpsJourneySummaryView(
+        summary: GpsJourneySummary(
+          routeId: 'r1',
+          momentCount: 0,
+          pointCount: 0,
+          statistics: const GpsJourneyStatistics(
+            totalDistanceMeters: 0,
+            elapsed: Duration(seconds: 5),
+            moving: Duration(seconds: 5),
+            paused: Duration.zero,
+            averageSpeedMps: null,
+            maxSpeedMps: null,
+            elevationGainMeters: 0,
+            elevationLossMeters: 0,
+          ),
+        ),
+        onDone: () {},
+      )));
+      expect(
+          find.text('GPS-точок не записано, маршрут порожній'), findsOneWidget);
+      expect(find.textContaining('Записано GPS-точок'), findsNothing);
+      expect(find.text('Подорож завершено'), findsOneWidget);
+    });
+
+    testWidgets('U05 the open-Journey action is shown only when provided',
+        (tester) async {
+      var opened = 0, done = 0;
+      await tester.pumpWidget(_wrap(GpsJourneySummaryView(
+        summary: _summary(),
+        onDone: () => done++,
+        onOpenDetails: () => opened++,
+      )));
+      await tester.tap(find.byKey(const Key('gps_summary_open_button')));
+      await tester.tap(find.byKey(const Key('gps_summary_done_button')));
+      expect(opened, 1);
+      expect(done, 1);
+    });
+
+    for (final width in [320.0, 360.0]) {
+      testWidgets('U06 fits $width dp at 1.5x text without overflow',
+          (tester) async {
+        await tester.pumpWidget(_wrap(
+          GpsJourneySummaryView(
+            summary: _summary(),
+            onDone: () {},
+            onOpenDetails: () {},
+          ),
+          width: width,
+          scale: 1.5,
+        ));
+        expect(tester.takeException(), isNull);
+        expect(
+            find.byKey(const Key('gps_summary_done_button')), findsOneWidget);
+      });
+    }
+  });
 }

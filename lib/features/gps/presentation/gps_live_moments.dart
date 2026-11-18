@@ -274,7 +274,7 @@ class GpsMomentsSheet extends StatelessWidget {
           ),
           child: Material(
             key: const Key('gps_moments_sheet'),
-            color: const Color(0xFF0D1C17),
+            color: AppColors.surface,
             clipBehavior: Clip.antiAlias,
             shape: const RoundedRectangleBorder(
               borderRadius: BorderRadius.vertical(top: Radius.circular(20)),

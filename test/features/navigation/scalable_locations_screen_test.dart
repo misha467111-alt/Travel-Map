@@ -552,6 +552,72 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+  group('Phase 3 Adventure layout', () {
+    for (final width in [320.0, 360.0]) {
+      testWidgets('V01 compact hierarchy fits $width dp without overflow',
+          (tester) async {
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final built = _adventureScope(
+          child: const MaterialApp(
+            home: ScalableLocationsScreen(
+                mode: ScalableLocationListMode.adventure),
+          ),
+        );
+        await tester.pumpWidget(built.scope);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        // Mood first, then the travel parameters, all functionality present.
+        expect(find.text('Настрій'), findsOneWidget);
+        expect(find.text('Параметри подорожі'), findsOneWidget);
+        final mood = tester.getTopLeft(find.text('Настрій')).dy;
+        final params = tester.getTopLeft(find.text('Параметри подорожі')).dy;
+        expect(mood, lessThan(params));
+        expect(find.text('Здивуй мене'), findsOneWidget);
+        expect(find.byKey(const Key('sphere_radius_slider')), findsOneWidget);
+        expect(find.byKey(const Key('adventure_time_slider')), findsOneWidget);
+        expect(
+            find.byKey(const Key('adventure_transport_field')), findsOneWidget);
+      });
+    }
+
+    testWidgets('V02 every category chip has the same look and height',
+        (tester) async {
+      final built = _adventureScope(
+        child: const MaterialApp(
+          home:
+              ScalableLocationsScreen(mode: ScalableLocationListMode.adventure),
+        ),
+      );
+      await tester.pumpWidget(built.scope);
+      await tester.pumpAndSettle();
+      final heights = <double>{};
+      for (final c in referenceLocationCategories) {
+        final finder = find.byKey(Key('sphere_category_${c.key}'));
+        final chip = tester.widget<ChoiceChip>(finder);
+        expect(chip.showCheckmark, false);
+        heights.add(tester.getSize(finder).height);
+      }
+      expect(heights.length, 1, reason: 'chips are one height: $heights');
+
+      // Selecting one keeps the same size and marks it selected.
+      await tester.tap(find.byKey(const Key('sphere_category_nature')));
+      await tester.pumpAndSettle();
+      expect(
+          tester
+              .widget<ChoiceChip>(
+                  find.byKey(const Key('sphere_category_nature')))
+              .selected,
+          true);
+      expect(
+          tester
+              .getSize(find.byKey(const Key('sphere_category_nature')))
+              .height,
+          heights.single);
+    });
+  });
 }
 
 /// Search Phase 2A: a minimal fake so the Saved-mode regression test above

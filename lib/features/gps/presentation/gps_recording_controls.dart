@@ -63,53 +63,101 @@ class GpsRecordingControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Wrap(
-      spacing: AppSpacing.sm,
-      runSpacing: AppSpacing.sm,
-      crossAxisAlignment: WrapCrossAlignment.center,
+    const bigSize = Size(0, 56);
+
+    // Primary row: Pause/Resume (gold, wider) and Finish (green, clearly
+    // different). Stacked vertically at large text scales so labels never
+    // overflow on small phones.
+    final primary = <Widget>[
+      if (uiState.canPause)
+        FilledButton.icon(
+          key: const Key('gps_recording_pause_button'),
+          style: FilledButton.styleFrom(minimumSize: bigSize),
+          onPressed: onPause,
+          icon: const Icon(Icons.pause),
+          label: const Text('Пауза'),
+        ),
+      if (uiState.canResume)
+        FilledButton.icon(
+          key: const Key('gps_recording_resume_button'),
+          style: FilledButton.styleFrom(minimumSize: bigSize),
+          onPressed: onResume,
+          icon: const Icon(Icons.play_arrow),
+          label: const Text('Продовжити'),
+        ),
+      if (uiState.canFinish)
+        FilledButton.icon(
+          key: const Key('gps_recording_finish_button'),
+          style: FilledButton.styleFrom(
+            minimumSize: bigSize,
+            backgroundColor: const Color(0xFF2E7D32),
+            foregroundColor: Colors.white,
+          ),
+          onPressed: () => _handleFinish(context),
+          icon: const Icon(Icons.check),
+          label: const Text('Завершити'),
+        ),
+    ];
+    final stacked = MediaQuery.textScalerOf(context).scale(14) > 17;
+    final secondary = <Widget>[
+      if (uiState.canAddWaypoint)
+        OutlinedButton.icon(
+          key: const Key('gps_recording_add_waypoint_button'),
+          onPressed: onAddWaypoint,
+          icon: const Icon(Icons.add_location_alt_outlined),
+          label: const Text('Додати точку'),
+        ),
+      if (uiState.canAddWaypoint && photoButton != null) photoButton!,
+      if (momentCount != null && onViewMoments != null)
+        GpsMomentInspectionButton(
+          momentCount: momentCount!,
+          onPressed: onViewMoments!,
+        ),
+      // Destructive and rare: a quiet text button in the secondary row (it
+      // always asks for confirmation).
+      if (uiState.canDiscard)
+        TextButton.icon(
+          key: const Key('gps_recording_discard_button'),
+          onPressed: () => _handleDiscard(context),
+          icon: Icon(Icons.close, color: theme.colorScheme.error),
+          label: Text('Скасувати',
+              style: TextStyle(color: theme.colorScheme.error)),
+        ),
+    ];
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (uiState.canPause)
-          FilledButton.icon(
-            key: const Key('gps_recording_pause_button'),
-            onPressed: onPause,
-            icon: const Icon(Icons.pause),
-            label: const Text('Пауза'),
+        if (primary.isNotEmpty)
+          stacked || primary.length == 1
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < primary.length; i++) ...[
+                      if (i > 0) const SizedBox(height: AppSpacing.sm),
+                      primary[i],
+                    ],
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(flex: 3, child: primary[0]),
+                    for (final button in primary.skip(1)) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(flex: 2, child: button),
+                    ],
+                  ],
+                ),
+        if (secondary.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: secondary,
           ),
-        if (uiState.canResume)
-          FilledButton.icon(
-            key: const Key('gps_recording_resume_button'),
-            onPressed: onResume,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Продовжити'),
-          ),
-        if (uiState.canAddWaypoint)
-          OutlinedButton.icon(
-            key: const Key('gps_recording_add_waypoint_button'),
-            onPressed: onAddWaypoint,
-            icon: const Icon(Icons.add_location_alt_outlined),
-            label: const Text('Додати точку'),
-          ),
-        if (uiState.canAddWaypoint && photoButton != null) photoButton!,
-        if (momentCount != null && onViewMoments != null)
-          GpsMomentInspectionButton(
-            momentCount: momentCount!,
-            onPressed: onViewMoments!,
-          ),
-        if (uiState.canFinish)
-          FilledButton.icon(
-            key: const Key('gps_recording_finish_button'),
-            onPressed: () => _handleFinish(context),
-            icon: const Icon(Icons.check),
-            label: const Text('Завершити'),
-          ),
-        if (uiState.canDiscard)
-          TextButton.icon(
-            key: const Key('gps_recording_discard_button'),
-            onPressed: () => _handleDiscard(context),
-            icon: Icon(Icons.close, color: theme.colorScheme.error),
-            label: Text('Скасувати',
-                style: TextStyle(color: theme.colorScheme.error)),
-          ),
+        ],
       ],
     );
   }

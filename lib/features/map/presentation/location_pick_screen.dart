@@ -97,34 +97,57 @@ class _LocationPickScreenState extends State<LocationPickScreen> {
               ),
             ),
           ),
+          // Compact, solid bottom action bar: readable on top of any map,
+          // SafeArea-aware, one-line labels that fit 320 dp.
           Positioned(
-            left: 16,
-            right: 16,
+            left: 0,
+            right: 0,
             bottom: 0,
-            child: SafeArea(
-              top: false,
-              minimum: const EdgeInsets.only(bottom: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      key: const Key('location_pick_cancel_button'),
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Скасувати'),
-                    ),
+            child: Material(
+              key: const Key('location_pick_action_bar'),
+              color: const Color(0xFA0D1C17),
+              elevation: 8,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: OutlinedButton(
+                          key: const Key('location_pick_cancel_button'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white54),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                          ),
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const _OneLine('Скасувати'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 3,
+                        child: FilledButton(
+                          key: const Key('location_pick_confirm_button'),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            disabledBackgroundColor: Colors.white12,
+                            disabledForegroundColor: Colors.white60,
+                          ),
+                          onPressed: picked == null
+                              ? null
+                              : () => Navigator.of(context).pop(picked),
+                          child: const _OneLine('Підтвердити місце'),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton(
-                      key: const Key('location_pick_confirm_button'),
-                      onPressed: picked == null
-                          ? null
-                          : () => Navigator.of(context).pop(picked),
-                      child: const Text('Підтвердити місце'),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),
@@ -132,4 +155,16 @@ class _LocationPickScreenState extends State<LocationPickScreen> {
       ),
     );
   }
+}
+
+/// A single-line button label that shrinks instead of clipping or wrapping.
+class _OneLine extends StatelessWidget {
+  const _OneLine(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(text, maxLines: 1, softWrap: false),
+      );
 }

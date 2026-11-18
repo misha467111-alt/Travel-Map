@@ -175,4 +175,63 @@ void main() {
         .singleWhere((m) => m.markerId.value == 'picked_location');
     expect(marker.position, tappedAgain);
   });
+
+  group('Phase 3 bottom action bar', () {
+    for (final width in [320.0, 360.0]) {
+      testWidgets(
+          'A01 both actions are visible, one-line and tappable at '
+          '$width dp (large text too)', (tester) async {
+        tester.view.physicalSize = Size(width, 640);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(
+                size: Size(width, 640),
+                textScaler: const TextScaler.linear(1.12),
+                padding: const EdgeInsets.only(bottom: 24)),
+            child: subject(initialPicked: tapped),
+          ),
+        ));
+        expect(tester.takeException(), isNull);
+
+        final cancel = tester
+            .getRect(find.byKey(const Key('location_pick_cancel_button')));
+        final confirm = tester
+            .getRect(find.byKey(const Key('location_pick_confirm_button')));
+        final bar =
+            tester.getRect(find.byKey(const Key('location_pick_action_bar')));
+        // On one row, inside the bar, above the system inset, wide enough.
+        expect(cancel.top, confirm.top);
+        expect(cancel.left, greaterThanOrEqualTo(bar.left));
+        expect(confirm.right, lessThanOrEqualTo(bar.right));
+        expect(confirm.bottom, lessThanOrEqualTo(640 - 24));
+        expect(cancel.height, greaterThanOrEqualTo(40));
+        expect(confirm.width, greaterThan(cancel.width));
+        // Labels stay on one line (they scale down instead of wrapping).
+        for (final label in ['Скасувати', 'Підтвердити місце']) {
+          expect(
+              tester.getSize(find.text(label)).height, lessThan(24 * 1.12 + 2));
+        }
+      });
+    }
+
+    testWidgets('A02 selection behavior is unchanged', (tester) async {
+      await tester.pumpWidget(MaterialApp(home: subject()));
+      expect(
+          tester
+              .widget<FilledButton>(
+                  find.byKey(const Key('location_pick_confirm_button')))
+              .onPressed,
+          isNull);
+      map(tester).onTap!(tapped);
+      await tester.pump();
+      expect(
+          tester
+              .widget<FilledButton>(
+                  find.byKey(const Key('location_pick_confirm_button')))
+              .onPressed,
+          isNotNull);
+    });
+  });
 }
