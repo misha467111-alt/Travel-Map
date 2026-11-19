@@ -410,7 +410,9 @@ class _TopTravelersScreen extends StatelessWidget {
                               context,
                               MaterialPageRoute<void>(
                                   builder: (_) => UserProfileScreen(
-                                      userId: row['id'] as String)))),
+                                        userId: row['id'] as String,
+                                        onOpenChat: openChatWith,
+                                      )))),
                     ),
                 ]);
           }));

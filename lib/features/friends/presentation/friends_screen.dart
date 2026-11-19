@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../map/providers/locations_provider.dart';
 import '../domain/friend_models.dart';
 import '../providers/friends_provider.dart';
+import '../../navigation/presentation/chats_screen.dart' show openChatWith;
 import '../../social/presentation/user_profile_screen.dart';
 import '../../../core/theme/app_design.dart';
 
@@ -274,7 +275,10 @@ class _ProfileTile extends StatelessWidget {
         visualDensity: const VisualDensity(vertical: -2),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => UserProfileScreen(userId: profile.id),
+            builder: (_) => UserProfileScreen(
+              userId: profile.id,
+              onOpenChat: openChatWith,
+            ),
           ),
         ),
       ),

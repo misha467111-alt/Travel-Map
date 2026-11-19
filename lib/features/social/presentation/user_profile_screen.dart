@@ -6,12 +6,19 @@ import '../../map/presentation/map_screen.dart';
 import '../../../core/theme/app_design.dart';
 import '../../profile/presentation/traveler_profile_header.dart';
 import '../domain/public_profile.dart';
+import '../../friends/domain/friend_models.dart';
 import '../providers/public_profile_provider.dart';
+import 'profile_social_actions.dart';
 
 class UserProfileScreen extends ConsumerStatefulWidget {
-  const UserProfileScreen({required this.userId, super.key});
+  const UserProfileScreen({required this.userId, this.onOpenChat, super.key});
 
   final String userId;
+
+  /// How to open the existing chat with a friend. Owned by the caller so this
+  /// screen does not depend on the chat screens; without it no "Чат" button
+  /// is shown.
+  final void Function(BuildContext context, FriendProfile friend)? onOpenChat;
 
   @override
   ConsumerState<UserProfileScreen> createState() => _UserProfileScreenState();
@@ -28,6 +35,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
             widget.userId,
             value,
           );
+      // The signed-in user's own "Стежу" counter changed too.
+      ref.invalidate(followCountsProvider);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -46,6 +55,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Профіль дослідника')),
       body: profile.when(
+        skipLoadingOnReload: true,
         data: (value) => RefreshIndicator(
           onRefresh: () async =>
               ref.invalidate(publicProfileProvider(widget.userId)),
@@ -53,6 +63,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
             profile: value,
             changingFollow: _changingFollow,
             onFollowChanged: _setFollowing,
+            onOpenChat: widget.onOpenChat == null
+                ? null
+                : (friend) => widget.onOpenChat!(context, friend),
           ),
         ),
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -84,11 +97,13 @@ class _ProfileContent extends ConsumerWidget {
     required this.profile,
     required this.changingFollow,
     required this.onFollowChanged,
+    this.onOpenChat,
   });
 
   final PublicProfile profile;
   final bool changingFollow;
   final ValueChanged<bool> onFollowChanged;
+  final ValueChanged<FriendProfile>? onOpenChat;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -118,24 +133,18 @@ class _ProfileContent extends ConsumerWidget {
                 label: 'Стежу',
                 value: profile.followingCount),
           ],
-          // No follow button on one's own profile.
+          // No social buttons on one's own profile.
           action: profile.isSelf
               ? null
-              : profile.isFollowing
-                  ? OutlinedButton.icon(
-                      key: const Key('profile_unfollow_button'),
-                      onPressed:
-                          changingFollow ? null : () => onFollowChanged(false),
-                      icon: const Icon(Icons.check),
-                      label: const Text('Стежу'),
-                    )
-                  : FilledButton.icon(
-                      key: const Key('profile_follow_button'),
-                      onPressed:
-                          changingFollow ? null : () => onFollowChanged(true),
-                      icon: const Icon(Icons.person_add_outlined),
-                      label: const Text('Стежити'),
-                    ),
+              : ProfileSocialActions(
+                  userId: profile.id,
+                  name: profile.name,
+                  avatarUrl: profile.avatarUrl,
+                  isFollowing: profile.isFollowing,
+                  followBusy: changingFollow,
+                  onFollowChanged: onFollowChanged,
+                  onOpenChat: onOpenChat,
+                ),
         ),
         const SizedBox(height: AppSpacing.xl),
         Text(

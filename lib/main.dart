@@ -11,6 +11,7 @@ import 'screens/auth_screens.dart';
 import 'features/friends/presentation/friends_screen.dart';
 import 'features/profile/presentation/profile_screen.dart';
 import 'features/navigation/presentation/main_navigation_screen.dart';
+import 'features/navigation/presentation/chats_screen.dart' show openChatWith;
 import 'features/social/presentation/user_profile_screen.dart';
 
 void main() {
@@ -182,8 +183,10 @@ class ExpeditionApp extends StatelessWidget {
       ),
       GoRoute(
         path: '/users/:id',
-        builder: (context, state) =>
-            UserProfileScreen(userId: state.pathParameters['id']!),
+        builder: (context, state) => UserProfileScreen(
+          userId: state.pathParameters['id']!,
+          onOpenChat: openChatWith,
+        ),
       ),
     ],
   );

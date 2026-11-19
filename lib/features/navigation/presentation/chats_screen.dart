@@ -10,6 +10,14 @@ import '../../friends/providers/friends_provider.dart';
 import '../../social/presentation/user_profile_screen.dart';
 import '../../../core/theme/app_design.dart';
 
+/// Opens the existing [ChatScreen] with [friend]. Shared by the screens that
+/// show a friend's public profile.
+void openChatWith(BuildContext context, FriendProfile friend) {
+  Navigator.of(context).push(MaterialPageRoute<void>(
+    builder: (_) => ChatScreen(friend: friend),
+  ));
+}
+
 class ChatsScreen extends ConsumerWidget {
   const ChatsScreen({super.key});
 
@@ -176,7 +184,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               icon: const Icon(Icons.person_outline),
               onPressed: () =>
                   Navigator.of(context).push(MaterialPageRoute<void>(
-                builder: (_) => UserProfileScreen(userId: widget.friend.id),
+                builder: (_) => UserProfileScreen(
+                  userId: widget.friend.id,
+                  // already in this chat: "Чат" simply goes back to it
+                  onOpenChat: (context, _) => Navigator.of(context).pop(),
+                ),
               )),
             ),
           ],
