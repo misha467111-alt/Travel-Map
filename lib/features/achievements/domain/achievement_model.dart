@@ -10,6 +10,7 @@ class AchievementModel {
     required this.target,
     required this.isUnlocked,
     this.unlockedAt,
+    this.sortOrder = 0,
   });
 
   final String key;
@@ -22,6 +23,10 @@ class AchievementModel {
   final double target;
   final bool isUnlocked;
   final DateTime? unlockedAt;
+
+  /// `achievement_definitions.sort_order` as returned by the RPC: the order
+  /// of the awards inside a category (a branch). Not a dependency or a rule.
+  final int sortOrder;
 
   double get progressFraction =>
       target <= 0 ? 0 : (progress / target).clamp(0, 1);

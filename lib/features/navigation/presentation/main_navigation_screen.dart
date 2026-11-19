@@ -209,8 +209,7 @@ void openSecondarySection(BuildContext context, String value) {
       const ScalableLocationsScreen(mode: ScalableLocationListMode.nearby),
     'top' => const _TopTravelersScreen(),
     'achievements' => const Scaffold(
-        appBar: _SimpleAppBar(title: 'Досягнення та квести'),
-        body: AchievementsTab()),
+        appBar: _SimpleAppBar(title: 'Досягнення'), body: AchievementsTab()),
     'invites' => const _InvitesScreen(),
     'notifications' => const NotificationsScreen(),
     'personalization' => const PersonalizationScreen(),

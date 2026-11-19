@@ -26,6 +26,7 @@ class AchievementsRepository {
         unlockedAt: row['unlocked_at'] == null
             ? null
             : DateTime.tryParse(row['unlocked_at'].toString()),
+        sortOrder: (row['sort_order'] as num? ?? 0).toInt(),
       );
     }).toList(growable: false);
   }

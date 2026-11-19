@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_design.dart';
 import '../domain/achievement_model.dart';
 import '../providers/achievements_provider.dart';
+import 'achievement_branches.dart';
 import 'achievement_icons.dart';
 
-/// "Мої досягнення" -- Premium Forest. Data, RPC (`get_achievement_progress`)
-/// and unlock rules are server-side and unchanged; this only presents them.
-/// Unlocked awards come first (the server order is otherwise kept), locked
-/// ones are muted and show real progress.
+/// "Мої досягнення" -- Premium Forest, as a tree of branches (one per real
+/// category). Data, RPC (`get_achievement_progress`) and unlock rules are
+/// server-side and unchanged; this only presents them. There are NO
+/// dependencies between awards on the server: a line between two nodes shows
+/// the order of progress, never an unlock rule.
 class AchievementsTab extends ConsumerWidget {
   const AchievementsTab({super.key});
 
@@ -45,22 +47,68 @@ class AchievementsTab extends ConsumerWidget {
   }
 }
 
-/// The scrollable collection for an already-loaded list (stateless: tests and
-/// the screen share it).
-class AchievementsList extends StatelessWidget {
-  const AchievementsList({required this.items, this.onRefresh, super.key});
+/// The scrollable tree for an already-loaded list. [expandAll] opens every
+/// branch (tests / previews); by default the branches that are in progress are
+/// open, or the first one when none is.
+class AchievementsList extends StatefulWidget {
+  const AchievementsList({
+    required this.items,
+    this.onRefresh,
+    this.expandAll = false,
+    super.key,
+  });
 
   final List<AchievementModel> items;
   final Future<void> Function()? onRefresh;
+  final bool expandAll;
+
+  @override
+  State<AchievementsList> createState() => _AchievementsListState();
+}
+
+class _AchievementsListState extends State<AchievementsList> {
+  late List<AchievementBranch> _branches;
+  final Set<String> _expanded = <String>{};
+  bool _initialised = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _branches = buildAchievementBranches(widget.items);
+    _initExpansion();
+  }
+
+  @override
+  void didUpdateWidget(covariant AchievementsList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.items, widget.items)) {
+      _branches = buildAchievementBranches(widget.items);
+      if (!_initialised) _initExpansion();
+    }
+  }
+
+  void _initExpansion() {
+    if (_branches.isEmpty) return;
+    _initialised = true;
+    if (widget.expandAll) {
+      _expanded.addAll(_branches.map((b) => b.category));
+      return;
+    }
+    final active = _branches.where((b) => b.unlocked > 0 && !b.isComplete);
+    if (active.isNotEmpty) {
+      _expanded.addAll(active.map((b) => b.category));
+    } else {
+      _expanded.add(_branches.first.category);
+    }
+  }
+
+  void _toggle(String category) => setState(() {
+        if (!_expanded.remove(category)) _expanded.add(category);
+      });
 
   @override
   Widget build(BuildContext context) {
-    final unlocked = items.where((item) => item.isUnlocked).length;
-    // Stable: unlocked first, server order otherwise preserved.
-    final ordered = [
-      ...items.where((a) => a.isUnlocked),
-      ...items.where((a) => !a.isUnlocked),
-    ];
+    final unlocked = widget.items.where((item) => item.isUnlocked).length;
     final scroll = CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
@@ -69,28 +117,34 @@ class AchievementsList extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(
                   AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.sm),
-              child:
-                  AchievementsHeader(unlocked: unlocked, total: items.length),
+              child: AchievementsHeader(
+                  unlocked: unlocked, total: widget.items.length),
             ),
           ),
         ),
         SliverList.builder(
-          itemCount: ordered.length,
+          itemCount: _branches.length,
           itemBuilder: (_, i) => _Centered(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(
                   AppSpacing.lg, AppSpacing.xs, AppSpacing.lg, AppSpacing.xs),
-              child: AchievementCard(ordered[i]),
+              child: _BranchCard(
+                branch: _branches[i],
+                expanded: _expanded.contains(_branches[i].category),
+                onToggle: () => _toggle(_branches[i].category),
+              ),
             ),
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xxl)),
       ],
     );
-    return onRefresh == null
+    return widget.onRefresh == null
         ? scroll
         : RefreshIndicator(
-            color: AppColors.accent, onRefresh: onRefresh!, child: scroll);
+            color: AppColors.accent,
+            onRefresh: widget.onRefresh!,
+            child: scroll);
   }
 }
 
@@ -214,10 +268,297 @@ class AchievementsHeader extends StatelessWidget {
 String _date(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 
-/// One award: a gold medal when unlocked, a muted one with real progress when
-/// locked.
-class AchievementCard extends StatelessWidget {
-  const AchievementCard(this.achievement, {super.key});
+String _num(double v) => v.toStringAsFixed(v == v.roundToDouble() ? 0 : 1);
+
+/// One branch: icon, name, X / Y, progress, and (expanded) its tree.
+class _BranchCard extends StatelessWidget {
+  const _BranchCard({
+    required this.branch,
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  final AchievementBranch branch;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final c = branch.category;
+    final next = branch.nextTarget;
+    return Container(
+      key: Key('achievement_branch_$c'),
+      decoration: BoxDecoration(
+        color: branch.unlocked > 0 ? AppColors.elevated : AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(
+            color: branch.isComplete
+                ? AppColors.accent
+                : branch.unlocked > 0
+                    ? AppColors.accent.withValues(alpha: 0.45)
+                    : AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            key: Key('achievement_branch_toggle_$c'),
+            onTap: onToggle,
+            child: ConstrainedBox(
+              constraints:
+                  const BoxConstraints(minHeight: AppSizes.touchTarget),
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Row(children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: branch.unlocked > 0
+                          ? AppColors.accentTint(0.2)
+                          : AppColors.border.withValues(alpha: 0.5),
+                      border: Border.all(
+                          color: branch.unlocked > 0
+                              ? AppColors.accent
+                              : AppColors.border),
+                    ),
+                    child: Icon(branchIconFor(c),
+                        color: branch.unlocked > 0
+                            ? AppColors.accent
+                            : AppColors.textSecondary),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(children: [
+                          Expanded(
+                              child:
+                                  Text(c, style: theme.textTheme.titleMedium)),
+                          if (branch.isComplete)
+                            const Padding(
+                              padding: EdgeInsets.only(right: AppSpacing.xs),
+                              child: Icon(Icons.verified,
+                                  key: Key('achievement_branch_complete'),
+                                  size: 18,
+                                  color: AppColors.accent),
+                            ),
+                          Text('${branch.unlocked} / ${branch.total}',
+                              key: Key('achievement_branch_count_$c'),
+                              style: theme.textTheme.titleSmall
+                                  ?.copyWith(color: AppColors.accent)),
+                        ]),
+                        const SizedBox(height: AppSpacing.xs),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadii.pill),
+                          child: LinearProgressIndicator(
+                            key: Key('achievement_branch_progress_$c'),
+                            value: branch.fraction,
+                            minHeight: 6,
+                            backgroundColor: AppColors.border,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                        if (!expanded && next != null) ...[
+                          const SizedBox(height: AppSpacing.xs),
+                          Text('Далі: ${next.name}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  AnimatedRotation(
+                    turns: expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(Icons.expand_more,
+                        color: AppColors.textSecondary),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: expanded
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.md, 0, AppSpacing.md, AppSpacing.md),
+                    child: Column(children: [
+                      for (var i = 0; i < branch.nodes.length; i++)
+                        _TreeNode(
+                          node: branch.nodes[i],
+                          previous: i > 0 ? branch.nodes[i - 1] : null,
+                          next: i + 1 < branch.nodes.length
+                              ? branch.nodes[i + 1]
+                              : null,
+                          isNextTarget:
+                              identical(branch.nextTarget, branch.nodes[i]),
+                        ),
+                    ]),
+                  )
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One node of a branch: the connector line (progress order only), the medal
+/// and a tappable summary that opens the details.
+class _TreeNode extends StatelessWidget {
+  const _TreeNode({
+    required this.node,
+    required this.previous,
+    required this.next,
+    required this.isNextTarget,
+  });
+
+  final AchievementModel node;
+  final AchievementModel? previous;
+  final AchievementModel? next;
+  final bool isNextTarget;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final a = node;
+    final unlocked = a.isUnlocked;
+    final at = a.unlockedAt;
+    // A segment is gold once the node it leads to has been reached.
+    final lineAbove = unlocked ? AppColors.accent : AppColors.border;
+    final lineBelow =
+        (next?.isUnlocked ?? false) ? AppColors.accent : AppColors.border;
+    return IntrinsicHeight(
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SizedBox(
+          width: 48,
+          child: Column(children: [
+            Container(
+                width: 2,
+                height: 8,
+                color: previous == null ? Colors.transparent : lineAbove),
+            Container(
+              key: Key('achievement_node_${a.key}'),
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: unlocked
+                    ? AppColors.accent
+                    : AppColors.border.withValues(alpha: 0.6),
+                border: isNextTarget
+                    ? Border.all(color: AppColors.accent, width: 2)
+                    : null,
+              ),
+              child: Icon(
+                unlocked ? achievementIconFor(a.icon) : Icons.lock_outline,
+                key: Key('achievement_icon_${a.key}'),
+                size: 22,
+                color: unlocked ? AppColors.onAccent : AppColors.textSecondary,
+              ),
+            ),
+            Expanded(
+              child: Container(
+                  width: 2,
+                  color: next == null ? Colors.transparent : lineBelow),
+            ),
+          ]),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+            child: InkWell(
+              key: Key('achievement_${a.key}'),
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              onTap: () => showAchievementDetails(context, a),
+              child: ConstrainedBox(
+                constraints:
+                    const BoxConstraints(minHeight: AppSizes.touchTarget),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.xs, vertical: AppSpacing.xs),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(a.name,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                              color: unlocked
+                                  ? AppColors.accent
+                                  : AppColors.textPrimary)),
+                      if (isNextTarget)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text('Наступна ціль',
+                              key: Key('achievement_next_${a.key}'),
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                  color: AppColors.accent,
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                      const SizedBox(height: 2),
+                      if (unlocked)
+                        Text(
+                            at == null
+                                ? 'Розблоковано'
+                                : 'Розблоковано ${_date(at.toLocal())}',
+                            style: theme.textTheme.labelSmall)
+                      else if (a.target > 0) ...[
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadii.pill),
+                          child: LinearProgressIndicator(
+                            key: Key('achievement_progress_${a.key}'),
+                            value: a.progressFraction,
+                            minHeight: 5,
+                            backgroundColor: AppColors.border,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text('${_num(a.progress)} / ${_num(a.target)}',
+                            style: theme.textTheme.labelSmall),
+                      ] else
+                        Text('Прогрес недоступний',
+                            style: theme.textTheme.labelSmall),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// Details of one award: real name, description, progress and threshold and
+/// the unlock date. Only server data is shown (the RPC has no XP per award, so
+/// there is no XP line).
+Future<void> showAchievementDetails(BuildContext context, AchievementModel a) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: AppColors.elevated,
+    showDragHandle: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
+    ),
+    builder: (_) => AchievementDetails(a),
+  );
+}
+
+class AchievementDetails extends StatelessWidget {
+  const AchievementDetails(this.achievement, {super.key});
 
   final AchievementModel achievement;
 
@@ -225,105 +566,94 @@ class AchievementCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final a = achievement;
-    final unlocked = a.isUnlocked;
     final at = a.unlockedAt;
-    return Container(
-      key: Key('achievement_${a.key}'),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: unlocked ? AppColors.elevated : AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(
-            color: unlocked
-                ? AppColors.accent.withValues(alpha: 0.7)
-                : AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Stack(
-            alignment: Alignment.bottomRight,
-            children: [
+    Widget row(String label, String value, {Key? key}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+                flex: 4,
+                child: Text(label, style: theme.textTheme.labelMedium)),
+            Expanded(
+                flex: 5,
+                child: Text(value,
+                    key: key,
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodyMedium)),
+          ]),
+        );
+    return SafeArea(
+      child: SingleChildScrollView(
+        key: const Key('achievement_detail_sheet'),
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [
               Container(
-                width: 52,
-                height: 52,
+                width: 56,
+                height: 56,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: unlocked
+                  color: a.isUnlocked
                       ? AppColors.accent
                       : AppColors.border.withValues(alpha: 0.6),
                 ),
                 child: Icon(achievementIconFor(a.icon),
-                    key: Key('achievement_icon_${a.key}'),
-                    size: 27,
-                    color: unlocked
+                    size: 28,
+                    color: a.isUnlocked
                         ? AppColors.onAccent
                         : AppColors.textSecondary),
               ),
-              if (!unlocked)
-                const CircleAvatar(
-                  radius: 10,
-                  backgroundColor: AppColors.background,
-                  child: Icon(Icons.lock,
-                      size: 12, color: AppColors.textSecondary),
-                ),
-            ],
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(a.name,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                        color: unlocked
-                            ? AppColors.accent
-                            : AppColors.textPrimary)),
-                const SizedBox(height: AppSpacing.xs),
-                Text(a.description,
-                    style: theme.textTheme.bodySmall
-                        ?.copyWith(color: AppColors.textSecondary)),
-                const SizedBox(height: AppSpacing.sm),
-                if (unlocked)
-                  Row(children: [
-                    const Icon(Icons.check_circle,
-                        size: 15, color: AppColors.accent),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                          at == null
-                              ? 'Розблоковано'
-                              : 'Розблоковано ${_date(at.toLocal())}',
-                          style: theme.textTheme.labelMedium?.copyWith(
-                              color: AppColors.accent,
-                              fontWeight: FontWeight.w600)),
-                    ),
-                  ])
-                else ...[
-                  Text(a.unlockCondition, style: theme.textTheme.labelSmall),
-                  if (a.target > 0) ...[
-                    const SizedBox(height: AppSpacing.xs),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadii.pill),
-                      child: LinearProgressIndicator(
-                        key: Key('achievement_progress_${a.key}'),
-                        value: a.progressFraction,
-                        minHeight: 6,
-                        backgroundColor: AppColors.border,
-                        color: AppColors.accent,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                        '${a.progress.toStringAsFixed(0)} / '
-                        '${a.target.toStringAsFixed(0)}',
-                        style: theme.textTheme.labelMedium),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(a.name,
+                        key: const Key('achievement_detail_name'),
+                        style: theme.textTheme.titleLarge),
+                    Text(a.isUnlocked ? 'Розблоковано' : 'Заблоковано',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                            color: a.isUnlocked
+                                ? AppColors.accent
+                                : AppColors.textSecondary)),
                   ],
-                ],
-              ],
-            ),
-          ),
-        ],
+                ),
+              ),
+            ]),
+            const SizedBox(height: AppSpacing.md),
+            Text(a.description, style: theme.textTheme.bodyMedium),
+            const SizedBox(height: AppSpacing.md),
+            const Divider(color: AppColors.border, height: 1),
+            row('Умова', a.unlockCondition),
+            if (a.target > 0) ...[
+              row('Прогрес', '${_num(a.progress)} / ${_num(a.target)}',
+                  key: const Key('achievement_detail_progress')),
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
+                  child: LinearProgressIndicator(
+                    value: a.isUnlocked ? 1 : a.progressFraction,
+                    minHeight: 8,
+                    backgroundColor: AppColors.border,
+                    color: AppColors.accent,
+                  ),
+                ),
+              ),
+            ] else
+              row('Прогрес', 'Недоступний',
+                  key: const Key('achievement_detail_progress')),
+            row(
+                'Відкрито',
+                a.isUnlocked
+                    ? (at == null ? 'Так' : _date(at.toLocal()))
+                    : 'Ще ні',
+                key: const Key('achievement_detail_date')),
+          ],
+        ),
       ),
     );
   }
