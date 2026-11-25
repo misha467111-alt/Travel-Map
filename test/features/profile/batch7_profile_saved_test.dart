@@ -41,6 +41,9 @@ void main() {
               savedCountOverride: 4,
               achievementProgressOverride: const (unlocked: 3, total: 8),
               inviteBalanceOverride: 2,
+              createdPlacesOverride: const AsyncData(3),
+              visitedPlacesOverride: const AsyncData(2),
+              recentJourneysOverride: const AsyncData([]),
               followCountsOverride:
                   const AsyncData(FollowCounts(followers: 21, following: 34)),
               journeyStatsOverride: const AsyncData(
@@ -97,6 +100,9 @@ void main() {
               savedCountOverride: 0,
               achievementProgressOverride: const (unlocked: 0, total: 0),
               inviteBalanceOverride: 0,
+              createdPlacesOverride: const AsyncData(3),
+              visitedPlacesOverride: const AsyncData(2),
+              recentJourneysOverride: const AsyncData([]),
               followCountsOverride:
                   const AsyncData(FollowCounts(followers: 21, following: 34)),
               journeyStatsOverride: const AsyncData(
@@ -268,6 +274,9 @@ void main() {
               savedCountOverride: 4,
               achievementProgressOverride: const (unlocked: 3, total: 8),
               inviteBalanceOverride: 2,
+              createdPlacesOverride: const AsyncData(3),
+              visitedPlacesOverride: const AsyncData(2),
+              recentJourneysOverride: const AsyncData([]),
               followCountsOverride:
                   const AsyncData(FollowCounts(followers: 21, following: 34)),
               journeyStatsOverride: const AsyncData(

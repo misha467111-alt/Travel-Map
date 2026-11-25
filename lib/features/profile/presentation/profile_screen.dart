@@ -18,6 +18,11 @@ import '../../gps/presentation/gps_journey_summary_view.dart'
     show formatGpsDistance;
 import '../providers/profile_journey_stats_provider.dart';
 import '../../social/domain/public_profile.dart';
+import '../../gps/local/gps_local_database.dart' show LocalRecordedRoute;
+import '../../gps/presentation/gps_journey_details_screen.dart';
+import '../providers/my_places_provider.dart';
+import 'my_places_screen.dart';
+import 'profile_places_section.dart';
 import 'profile_premium_components.dart';
 import 'traveler_profile_header.dart';
 import '../../../core/theme/app_design.dart';
@@ -57,6 +62,9 @@ class ProfileContent extends ConsumerStatefulWidget {
     this.unlockedAchievementsOverride,
     this.journeyStatsOverride,
     this.followCountsOverride,
+    this.createdPlacesOverride,
+    this.visitedPlacesOverride,
+    this.recentJourneysOverride,
     super.key,
   });
   final UserProfile profile;
@@ -70,6 +78,11 @@ class ProfileContent extends ConsumerStatefulWidget {
   final List<AchievementModel>? unlockedAchievementsOverride;
   final AsyncValue<ProfileJourneyStats>? journeyStatsOverride;
   final AsyncValue<FollowCounts>? followCountsOverride;
+
+  /// Test seams for the own-places counters and the recent Journeys.
+  final AsyncValue<int>? createdPlacesOverride;
+  final AsyncValue<int>? visitedPlacesOverride;
+  final AsyncValue<List<LocalRecordedRoute>>? recentJourneysOverride;
   @override
   ConsumerState<ProfileContent> createState() => _ProfileContentState();
 }
@@ -152,7 +165,30 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
     if (updated && mounted) setState(() => _nameOverride = name.trim());
   }
 
+  void _openJourney(String routeId) {
+    if (widget.onDestination != null) {
+      widget.onDestination!('journey:$routeId');
+    } else {
+      Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => GpsJourneyDetailsScreen(routeId: routeId),
+      ));
+    }
+  }
+
   void _open(String destination) {
+    if (destination.startsWith('places_') && widget.onDestination == null) {
+      Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => MyPlacesScreen(
+          ownerId: widget.profile.id,
+          initialTab: switch (destination) {
+            'places_saved' => 1,
+            'places_visited' => 2,
+            _ => 0,
+          },
+        ),
+      ));
+      return;
+    }
     if (destination == 'logout') {
       if (widget.onLogout != null) {
         widget.onLogout!();
@@ -217,6 +253,18 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
     final journeyTile = journeyTileText(journeyState, formatGpsDistance);
     final AsyncValue<FollowCounts> followCounts = widget.followCountsOverride ??
         ref.watch(followCountsProvider(profile.id));
+    // Created: an exact count query. Visited: UNIQUE places from the
+    // check-ins ("N+" only if not all check-ins could be read).
+    final AsyncValue<int> createdPlaces = widget.createdPlacesOverride ??
+        ref.watch(myCreatedCountProvider(profile.id));
+    final visitedState = widget.visitedPlacesOverride == null
+        ? ref.watch(myVisitedPlacesProvider(profile.id))
+        : null;
+    final AsyncValue<int> visitedPlaces =
+        widget.visitedPlacesOverride ?? visitedState!.whenData((v) => v.total);
+    final visitedExact = visitedState?.value?.isComplete ?? true;
+    final AsyncValue<List<LocalRecordedRoute>> recentJourneys =
+        widget.recentJourneysOverride ?? watchRecentJourneys(ref, profile.id);
     final inviteBalance =
         widget.inviteBalanceOverride ?? profileController.invitesLeft;
     final mediaQuery = MediaQuery.of(context);
@@ -290,6 +338,13 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
                   achievementList == null,
               onOpenAll: () => _open('achievements'),
             ),
+            ProfilePlacesCard(
+              created: createdPlaces,
+              saved: savedCount,
+              visited: visitedPlaces,
+              visitedIsExact: visitedExact,
+              onTap: _open,
+            ),
             PremiumActionCard(title: 'Спільнота', rows: [
               PremiumActionRow(
                   destination: 'friends',
@@ -313,6 +368,11 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
                   title: 'Лідерборд',
                   onTap: _open),
             ]),
+            ProfileRecentJourneysCard(
+              ownerId: profile.id,
+              journeys: recentJourneys,
+              onOpenJourney: _openJourney,
+            ),
             PremiumActionCard(title: 'Мої подорожі', rows: [
               PremiumActionRow(
                   destination: 'saved',

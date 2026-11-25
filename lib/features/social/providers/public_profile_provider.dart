@@ -156,26 +156,61 @@ final followControllerProvider = Provider<FollowController>(
   FollowController.new,
 );
 
+/// The signed-in user's id (`null` when signed out), available synchronously
+/// and updated on every sign-in / sign-out, so anything per-account can rebuild
+/// when the account changes inside one app session. A token refresh keeps the
+/// same id and notifies nobody.
+class SignedInUserId extends Notifier<String?> {
+  @override
+  String? build() {
+    final auth = Supabase.instance.client.auth;
+    final sub = auth.onAuthStateChange.listen((event) {
+      final id = event.session?.user.id;
+      if (id != state) state = id;
+    });
+    ref.onDispose(sub.cancel);
+    return auth.currentUser?.id;
+  }
+}
+
+final signedInUserIdProvider =
+    NotifierProvider<SignedInUserId, String?>(SignedInUserId.new);
+
+/// The signed-in user's bookmarks, stored on this device under a PER-ACCOUNT
+/// key (`saved_public_locations_<user_id>`). The notifier rebuilds whenever the
+/// signed-in account changes, so after a logout / login as someone else it
+/// never shows -- or writes to -- the previous account's bookmarks. Nothing is
+/// deleted: each account's bookmarks stay under its own key. Signed out, the
+/// list is empty and nothing is persisted.
 class SavedPublicLocationsNotifier extends AsyncNotifier<Set<String>> {
-  late SharedPreferences _preferences;
-  late String _key;
+  static String _keyFor(String userId) => 'saved_public_locations_$userId';
 
   @override
   Future<Set<String>> build() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? 'anonymous';
-    _key = 'saved_public_locations_$userId';
-    _preferences = await SharedPreferences.getInstance();
-    return (_preferences.getStringList(_key) ?? const []).toSet();
+    final userId = ref.watch(signedInUserIdProvider);
+    final preferences = await SharedPreferences.getInstance();
+    if (userId == null) return <String>{};
+    return (preferences.getStringList(_keyFor(userId)) ?? const []).toSet();
   }
 
+  /// Adds / removes a bookmark of the CURRENT account. The account is captured
+  /// first and the bookmarks are awaited, so a toggle can never be applied to
+  /// the previous account's set while a rebuild is still in flight; if the
+  /// account changes while waiting, the toggle is dropped instead of being
+  /// written under the wrong key.
   Future<void> toggle(String locationId) async {
-    final current = state.value ?? const <String>{};
+    final userId = ref.read(signedInUserIdProvider);
+    final current = await future;
+    if (ref.read(signedInUserIdProvider) != userId) return;
     final updated = Set<String>.of(current);
     updated.contains(locationId)
         ? updated.remove(locationId)
         : updated.add(locationId);
     state = AsyncData(updated);
-    await _preferences.setStringList(_key, updated.toList(growable: false));
+    if (userId == null) return; // signed out: nothing to persist
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList(
+        _keyFor(userId), updated.toList(growable: false));
   }
 }
 

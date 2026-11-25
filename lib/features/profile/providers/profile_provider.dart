@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../social/providers/public_profile_provider.dart'
+    show signedInUserIdProvider;
 import '../domain/user_profile.dart';
 
 part 'profile_provider.g.dart';
@@ -124,5 +126,10 @@ ProfileRepository profileRepository(Ref ref) =>
     ProfileRepository(Supabase.instance.client);
 
 @Riverpod(keepAlive: true, retry: _neverRetry)
-Future<UserProfile> currentProfile(Ref ref) =>
-    ref.watch(profileRepositoryProvider).fetchCurrentProfile();
+Future<UserProfile> currentProfile(Ref ref) {
+  // keepAlive: re-read whenever the signed-in ACCOUNT changes, otherwise the
+  // previous account's profile (and the places keyed by its id) would stay
+  // visible after a logout / login as someone else in the same session.
+  ref.watch(signedInUserIdProvider);
+  return ref.watch(profileRepositoryProvider).fetchCurrentProfile();
+}

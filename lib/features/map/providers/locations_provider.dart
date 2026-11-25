@@ -126,6 +126,33 @@ class LocationsRepository {
         .toList(growable: false);
   }
 
+  /// Exact number of the owner's locations (a count query, not the size of a
+  /// loaded page). Errors are thrown, never turned into 0.
+  Future<int> countOwnLocations(String ownerId) async {
+    final result = await _supabase
+        .from('locations')
+        .select('id')
+        .eq('owner_id', ownerId)
+        .count(CountOption.exact);
+    return result.count;
+  }
+
+  /// The signed-in user's OWN locations (every moderation status; RLS lets an
+  /// owner read their own rows), newest first. Filtered by `owner_id`, never by
+  /// anything another user controls.
+  Future<List<LocationModel>> fetchOwnLocations(String ownerId,
+      {int limit = 100}) async {
+    final rows = await _supabase
+        .from('locations')
+        .select()
+        .eq('owner_id', ownerId)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    return rows
+        .map((row) => LocationModel.fromMap(Map<String, dynamic>.from(row)))
+        .toList(growable: false);
+  }
+
   Future<LocationDetailsData> fetchLocationDetails(String locationId) async {
     final results = await Future.wait<dynamic>([
       _supabase.from('locations').select().eq('id', locationId).single(),

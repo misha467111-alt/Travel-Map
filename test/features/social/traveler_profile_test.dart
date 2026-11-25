@@ -176,6 +176,12 @@ void main() {
         'Налаштування',
         'Вийти',
         'Інвайти',
+        'Мої місця',
+        'Створені',
+        'Збережені',
+        'Відвідані',
+        'Останні подорожі',
+        'Історія подорожей',
       ]) {
         expect(find.text(hidden), findsNothing, reason: hidden);
       }
@@ -234,6 +240,9 @@ void main() {
                   achievementProgressOverride: const (unlocked: 1, total: 35),
                   unlockedAchievementsOverride: const [],
                   inviteBalanceOverride: 0,
+                  createdPlacesOverride: const AsyncData(3),
+                  visitedPlacesOverride: const AsyncData(2),
+                  recentJourneysOverride: const AsyncData([]),
                   followCountsOverride: counts,
                   journeyStatsOverride: const AsyncData(ProfileJourneyStats(
                       count: 0, confirmedDistanceMeters: 0)),

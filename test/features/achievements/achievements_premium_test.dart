@@ -504,6 +504,9 @@ void main() {
                 locationsCount: 1),
             savedCountOverride: 0,
             inviteBalanceOverride: 0,
+            createdPlacesOverride: const AsyncData(3),
+            visitedPlacesOverride: const AsyncData(2),
+            recentJourneysOverride: const AsyncData([]),
             followCountsOverride:
                 const AsyncData(FollowCounts(followers: 21, following: 34)),
             journeyStatsOverride: const AsyncData(
