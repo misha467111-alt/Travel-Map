@@ -67,16 +67,35 @@ void main() {
     // Backend-authoritative next threshold for 320 XP (Мандрівник tier,
     // floor 300) is 600, not 700 -- see xp_levels.dart / Phase 1 XP fix.
     expect(find.text('320 / 600 XP'), findsOneWidget);
-    expect(find.text('12'), findsOneWidget);
-    expect(find.text('4'), findsOneWidget);
-    expect(find.text('3'), findsOneWidget);
+    // Locations (the exact created-places count, 3 -- not the profile's own
+    // cached figure 12) / Journeys / confirmed distance tiles: real values only.
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('profile_counter_locations')),
+            matching: find.text('3')),
+        findsOneWidget);
+    expect(find.text('12'), findsNothing);
+    expect(find.text('7'), findsOneWidget);
+    expect(find.text('1.42 км'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('profile_action_achievements')),
+      180,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(find.text('3 із 8'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.byKey(const Key('profile_action_invites')),
       180,
       scrollable: find.byType(Scrollable),
     );
-    expect(find.text('3 із 8'), findsOneWidget);
+    // Saved places (4) are shown once, in "Мої місця".
+    expect(
+        find.descendant(
+            of: find.byKey(const Key('profile_action_places_saved')),
+            matching: find.text('4')),
+        findsOneWidget);
     expect(find.text('Доступно: 2'), findsOneWidget);
   });
 
@@ -153,8 +172,10 @@ void main() {
       await tester.pump();
       await tester.tap(finder);
       expect(opened, contains(destination));
-      final tile = tester.widget<ListTile>(finder);
-      expect(tile.trailing, isA<Icon>());
+      // "achievements" is the "Усі →" link of its section, the rest are rows.
+      if (destination != 'achievements') {
+        expect(tester.widget<ListTile>(finder).trailing, isA<Icon>());
+      }
     }
 
     final logout = find.byKey(const Key('profile_action_logout'));

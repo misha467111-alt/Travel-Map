@@ -5,20 +5,77 @@ import '../../../core/theme/app_design.dart';
 import '../../achievements/domain/achievement_model.dart';
 import '../../achievements/presentation/achievement_icons.dart';
 import '../providers/profile_journey_stats_provider.dart';
+import 'profile_forest_art.dart';
+import 'traveler_profile_header.dart' show TravelerCounter, TravelerCounterTile;
 
 /// Phase 3.1 -- Premium Forest building blocks of the traveler profile.
 /// Colours, radii and spacing come only from `app_design.dart`.
 
 const double _kMinTap = AppSizes.touchTarget;
 
-BoxDecoration _cardDecoration({Color? color, Color? border}) => BoxDecoration(
+/// The card decoration of the Premium Forest profile (shared with the other
+/// profile files so no second copy of it exists).
+BoxDecoration premiumCardDecoration({Color? color, Color? border}) =>
+    BoxDecoration(
       color: color ?? AppColors.surface,
       borderRadius: BorderRadius.circular(AppRadii.lg),
       border: Border.all(color: border ?? AppColors.border),
     );
 
-/// One statistic tile. [value] is already a display string; [caption] is an
-/// optional second line (e.g. the confirmed distance).
+/// Section title with an optional "Усі →" link on the right.
+class PremiumSectionHeader extends StatelessWidget {
+  const PremiumSectionHeader({
+    required this.title,
+    this.trailing,
+    this.onAll,
+    this.allKey,
+    super.key,
+  });
+
+  final String title;
+
+  /// A small secondary text before the link (e.g. "2 із 35").
+  final String? trailing;
+  final VoidCallback? onAll;
+  final Key? allKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.xs, AppSpacing.sm, AppSpacing.xs, AppSpacing.xs),
+      child: Row(children: [
+        Expanded(
+          child: Text(title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium),
+        ),
+        if (trailing != null)
+          Padding(
+            padding: const EdgeInsets.only(left: AppSpacing.sm),
+            child: Text(trailing!, style: theme.textTheme.labelMedium),
+          ),
+        if (onAll != null)
+          TextButton(
+            key: allKey,
+            onPressed: onAll,
+            style: TextButton.styleFrom(
+              minimumSize:
+                  const Size(AppSizes.touchTarget, AppSizes.touchTarget),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text('Усі →', semanticsLabel: 'Усі: $title'),
+          ),
+      ]),
+    );
+  }
+}
+
+/// One statistic tile: gold icon, the value, then the label. [value] is already
+/// a display string; [caption] is an optional extra line.
 class PremiumStatTile extends StatelessWidget {
   const PremiumStatTile({
     required this.icon,
@@ -39,39 +96,39 @@ class PremiumStatTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      constraints: const BoxConstraints(minHeight: 88),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: _cardDecoration(),
+      constraints: const BoxConstraints(minHeight: 104),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.sm, vertical: AppSpacing.md),
+      decoration: premiumCardDecoration(),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Row(children: [
-            Icon(icon, size: 18, color: AppColors.accent),
-            const SizedBox(width: AppSpacing.xs),
-            Expanded(
-              child: Text(label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelMedium),
-            ),
-          ]),
+          Icon(icon, size: 22, color: AppColors.accent),
           const SizedBox(height: AppSpacing.xs),
           if (loading)
             const SizedBox(
-                height: 22,
-                width: 22,
+                height: 24,
+                width: 24,
                 child: CircularProgressIndicator(
                     strokeWidth: 2, color: AppColors.accent))
           else
             Text(value,
-                maxLines: 1,
+                maxLines: 2,
+                textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleLarge
-                    ?.copyWith(color: AppColors.accent)),
+                    ?.copyWith(color: AppColors.textPrimary, height: 1.1)),
+          const SizedBox(height: 2),
+          Text(label,
+              maxLines: 1,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium),
           if (caption != null)
             Text(caption!,
-                maxLines: 1,
+                maxLines: 2,
+                textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.labelSmall),
         ],
@@ -80,50 +137,98 @@ class PremiumStatTile extends StatelessWidget {
   }
 }
 
-/// Two-column grid of [PremiumStatTile]s (equal-height rows, no fixed heights, so a
-/// larger system font only makes the tiles taller).
-class PremiumStatsGrid extends StatelessWidget {
-  const PremiumStatsGrid({required this.tiles, super.key});
+/// A row of equal-height [PremiumStatTile]s (no fixed heights, so a larger
+/// system font only makes the tiles taller).
+class PremiumStatsRow extends StatelessWidget {
+  const PremiumStatsRow({required this.tiles, super.key});
 
   final List<Widget> tiles;
 
   @override
-  Widget build(BuildContext context) {
-    final rows = <Widget>[];
-    for (var i = 0; i < tiles.length; i += 2) {
-      final last = i + 1 >= tiles.length;
-      // An odd last tile spans the full width instead of leaving a gap.
-      rows.add(last
-          ? tiles[i]
-          : IntrinsicHeight(
-              child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Expanded(child: tiles[i]),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(child: tiles[i + 1]),
-                  ]),
-            ));
-      if (i + 2 < tiles.length) rows.add(const SizedBox(height: AppSpacing.sm));
-    }
-    return Column(children: rows);
-  }
+  Widget build(BuildContext context) => IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          for (var i = 0; i < tiles.length; i++) ...[
+            if (i > 0) const SizedBox(width: AppSpacing.sm),
+            Expanded(child: tiles[i]),
+          ],
+        ]),
+      );
+}
+
+/// The compact "Стежать / Стежу" strip: two real counters. It is deliberately
+/// NOT tappable: there are no followers / following lists yet, and the friends
+/// screen is a different thing (mutual friendships), so it must not be offered
+/// as their destination. Each half keeps the stable `profile_counter_<keyName>`
+/// key; a loading / unavailable value is a spinner / an em dash, never a
+/// made-up zero. Read out as one sentence by screen readers.
+class PremiumFollowRow extends StatelessWidget {
+  const PremiumFollowRow({
+    required this.followers,
+    required this.following,
+    super.key,
+  });
+
+  final TravelerCounter followers;
+  final TravelerCounter following;
+
+  static String _spoken(TravelerCounter c) => c.loading
+      ? 'завантаження'
+      : c.value == null
+          ? 'недоступно'
+          : '${c.value}';
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        container: true,
+        label: '${followers.label}: ${_spoken(followers)}. '
+            '${following.label}: ${_spoken(following)}.',
+        child: ExcludeSemantics(
+          child: Container(
+            key: const Key('profile_follow_row'),
+            decoration: premiumCardDecoration(),
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Row(children: [
+              Expanded(child: TravelerCounterTile(counter: followers)),
+              Container(width: 1, height: 36, color: AppColors.border),
+              Expanded(child: TravelerCounterTile(counter: following)),
+            ]),
+          ),
+        ),
+      );
+}
+
+/// The "Локації" tile: the EXACT number of the user's own locations (the same
+/// count query "Мої місця" uses). Loading and error never invent a number.
+({String value, bool loading}) createdTileText(AsyncValue<int> state) {
+  return state.when(
+    loading: () => (value: '', loading: true),
+    error: (_, __) => (value: '—', loading: false),
+    data: (count) => (value: '$count', loading: false),
+  );
 }
 
 /// Text for the Journey tile from the loader state. Empty and error never
 /// invent a number.
 ({String value, String? caption, bool loading}) journeyTileText(
-    AsyncValue<ProfileJourneyStats> state, String Function(double) distance) {
+    AsyncValue<ProfileJourneyStats> state) {
   return state.when(
     loading: () => (value: '', caption: null, loading: true),
     error: (_, __) => (value: '—', caption: 'Недоступно', loading: false),
     data: (stats) => stats.count == 0
         ? (value: '0', caption: 'Ще немає подорожей', loading: false)
-        : (
-            value: '${stats.count}',
-            caption: distance(stats.confirmedDistanceMeters),
-            loading: false
-          ),
+        : (value: '${stats.count}', caption: null, loading: false),
+  );
+}
+
+/// Text for the distance tile: the CONFIRMED distance of all finished
+/// Journeys. Loading and error never invent a number.
+({String value, bool loading}) distanceTileText(
+    AsyncValue<ProfileJourneyStats> state, String Function(double) distance) {
+  return state.when(
+    loading: () => (value: '', loading: true),
+    error: (_, __) => (value: '—', loading: false),
+    data: (stats) =>
+        (value: distance(stats.confirmedDistanceMeters), loading: false),
   );
 }
 
@@ -149,7 +254,7 @@ class PremiumActionCard extends StatelessWidget {
             child: Text(title, style: Theme.of(context).textTheme.titleMedium),
           ),
           Container(
-            decoration: _cardDecoration(),
+            decoration: premiumCardDecoration(),
             clipBehavior: Clip.antiAlias,
             child: Material(
               type: MaterialType.transparency,
@@ -210,9 +315,10 @@ class PremiumActionRow extends StatelessWidget {
       );
 }
 
-/// Compact horizontal strip of REAL unlocked achievements plus progress.
-/// [unlocked] == null means the list is not available (loading, error, or only
-/// the counters are known): no medals are invented in that case.
+/// Compact horizontal strip of REAL unlocked achievements (hexagonal gold
+/// medals) plus progress. [unlocked] == null means the list is not available
+/// (loading, error, or only the counters are known): no medals are invented in
+/// that case. Locked achievements are not shown here.
 class PremiumAchievementsStrip extends StatelessWidget {
   const PremiumAchievementsStrip({
     required this.progress,
@@ -265,31 +371,26 @@ class PremiumAchievementsStrip extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.md),
         child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           for (final a in medals)
-            Container(
-              width: 84,
-              margin: const EdgeInsets.only(right: AppSpacing.sm),
-              child: Column(children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: AppColors.accentTint(0.2),
-                    border: Border.all(color: AppColors.accent, width: 1.5),
+            Semantics(
+              label: 'Нагорода: ${a.name}',
+              excludeSemantics: true,
+              child: Container(
+                width: 84,
+                margin: const EdgeInsets.only(right: AppSpacing.sm),
+                child: Column(children: [
+                  HexMedal(
+                    icon: achievementIconFor(a.icon),
+                    iconKey: Key('profile_medal_icon_${a.key}'),
                   ),
-                  child: Icon(achievementIconFor(a.icon),
-                      key: Key('profile_medal_icon_${a.key}'),
-                      color: AppColors.accent,
-                      size: 24),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(a.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.labelSmall
-                        ?.copyWith(color: AppColors.textPrimary)),
-              ]),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(a.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: AppColors.textPrimary)),
+                ]),
+              ),
             ),
         ]),
       );
@@ -297,18 +398,21 @@ class PremiumAchievementsStrip extends StatelessWidget {
       body = const SizedBox(height: AppSpacing.xs);
     }
 
-    return PremiumActionCard(
-      title: 'Досягнення',
-      rows: [
-        body,
-        PremiumActionRow(
-          destination: 'achievements',
-          icon: Icons.emoji_events_outlined,
-          title: 'Усі досягнення',
-          subtitle: progress == null
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        PremiumSectionHeader(
+          title: 'Досягнення',
+          trailing: progress == null
               ? null
               : '${progress!.unlocked} із ${progress!.total}',
-          onTap: (_) => onOpenAll(),
+          onAll: onOpenAll,
+          allKey: const Key('profile_action_achievements'),
+        ),
+        Container(
+          width: double.infinity,
+          decoration: premiumCardDecoration(),
+          child: body,
         ),
       ],
     );

@@ -6,9 +6,7 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_application_1/core/theme/app_design.dart';
 import 'package:flutter_application_1/features/gps/local/gps_local_database.dart';
-import 'package:flutter_application_1/features/gps/presentation/gps_journey_summary_view.dart';
 import 'package:flutter_application_1/features/gps/recording/gps_journey_statistics.dart';
-import 'package:flutter_application_1/features/gps/recording/gps_journey_summary.dart';
 import 'package:flutter_application_1/features/map/domain/location_model.dart';
 import 'package:flutter_application_1/features/map/providers/locations_provider.dart';
 import 'package:flutter_application_1/features/profile/domain/user_profile.dart';
@@ -16,6 +14,7 @@ import 'package:flutter_application_1/features/profile/presentation/my_places_sc
 import 'package:flutter_application_1/features/profile/presentation/profile_screen.dart';
 import 'package:flutter_application_1/features/profile/providers/my_places_provider.dart';
 import 'package:flutter_application_1/features/profile/providers/profile_journey_stats_provider.dart';
+import 'package:flutter_application_1/features/profile/providers/profile_journey_data_provider.dart';
 import 'package:flutter_application_1/features/social/domain/public_profile.dart';
 import 'package:flutter_application_1/features/social/providers/public_profile_provider.dart';
 
@@ -340,10 +339,9 @@ void main() {
           syncStatus: RouteSyncStatus.synced,
         );
 
-    GpsJourneySummary summary(String id, double meters) => GpsJourneySummary(
-          routeId: id,
-          momentCount: 0,
-          pointCount: 10,
+    ProfileJourneyData journeyData(String id, double meters) =>
+        ProfileJourneyData(
+          runs: const [],
           statistics: GpsJourneyStatistics(
             totalDistanceMeters: meters,
             elapsed: const Duration(hours: 1),
@@ -360,6 +358,7 @@ void main() {
       AsyncValue<int> created = const AsyncData(3),
       AsyncValue<int> visited = const AsyncData(2),
       AsyncValue<List<LocalRecordedRoute>> journeys = const AsyncData([]),
+      Map<String, double> journeyMeters = const {},
       List<String>? opened,
       List<Override> overrides = const [],
       double width = 400,
@@ -367,7 +366,16 @@ void main() {
     }) =>
         ProviderScope(
           key: UniqueKey(),
-          overrides: overrides,
+          overrides: [
+            // The per-Journey data is read from the local GPS database; tests
+            // never open it (no data unless a test overrides it).
+            for (final r in journeys.value ?? const <LocalRecordedRoute>[])
+              profileJourneyDataProvider((ownerId: 'me', routeId: r.id))
+                  .overrideWith((ref) async => journeyMeters[r.id] == null
+                      ? null
+                      : journeyData(r.id, journeyMeters[r.id]!)),
+            ...overrides,
+          ],
           child: MaterialApp(
             theme: buildAppTheme(),
             home: MediaQuery(
@@ -460,12 +468,7 @@ void main() {
       await tester.pumpWidget(profile(
         opened: opened,
         journeys: AsyncData([route('j1', title: 'Прогулянка'), route('j2')]),
-        overrides: [
-          gpsJourneySummaryProvider((ownerId: 'me', routeId: 'j1'))
-              .overrideWith((ref) async => summary('j1', 1239)),
-          gpsJourneySummaryProvider((ownerId: 'me', routeId: 'j2'))
-              .overrideWith((ref) async => summary('j2', 176)),
-        ],
+        journeyMeters: {'j1': 1239, 'j2': 176},
       ));
       final j1 = find.byKey(const Key('profile_journey_j1'));
       await tester.scrollUntilVisible(j1, 200,
@@ -506,11 +509,7 @@ void main() {
     testWidgets('only the 3 most recent Journeys are listed', (tester) async {
       await tester.pumpWidget(profile(
         journeys: AsyncData([for (var i = 0; i < 5; i++) route('r$i')]),
-        overrides: [
-          for (var i = 0; i < 5; i++)
-            gpsJourneySummaryProvider((ownerId: 'me', routeId: 'r$i'))
-                .overrideWith((ref) async => summary('r$i', 100)),
-        ],
+        journeyMeters: {for (var i = 0; i < 5; i++) 'r$i': 100},
       ));
       await tester.scrollUntilVisible(
           find.byKey(const Key('profile_journey_r0')), 200,
@@ -528,10 +527,7 @@ void main() {
             journeys: AsyncData([
               route('j1', title: 'Дуже довга назва подорожі для перевірки')
             ]),
-            overrides: [
-              gpsJourneySummaryProvider((ownerId: 'me', routeId: 'j1'))
-                  .overrideWith((ref) async => summary('j1', 12345)),
-            ],
+            journeyMeters: {'j1': 12345},
           ));
           for (final k in [
             'profile_action_places_created',

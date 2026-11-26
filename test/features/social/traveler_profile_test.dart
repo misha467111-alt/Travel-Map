@@ -258,7 +258,8 @@ void main() {
       await tester.pumpWidget(own());
       Finder counter(String k, String v) => find.descendant(
           of: find.byKey(Key('profile_counter_$k')), matching: find.text(v));
-      expect(counter('locations', '12'), findsOneWidget);
+      // Locations = the exact created-places count (override 3).
+      expect(counter('locations', '3'), findsOneWidget);
       expect(counter('followers', '21'), findsOneWidget);
       expect(counter('following', '34'), findsOneWidget);
       expect(find.text('ivan@example.com'), findsOneWidget);
@@ -290,7 +291,7 @@ void main() {
       expect(
           find.descendant(
               of: find.byKey(const Key('profile_counter_locations')),
-              matching: find.text('12')),
+              matching: find.text('3')),
           findsOneWidget);
     });
 

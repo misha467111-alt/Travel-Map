@@ -92,6 +92,32 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
   String? _avatarOverride;
   String? _nameOverride;
 
+  /// The profile is a tab kept alive in an `IndexedStack` (every tab is built
+  /// when the app starts). [Visibility.of] says whether the tab is the shown
+  /// one. The heavy local GPS reads wait until it has been shown once...
+  bool _everVisible = false;
+
+  /// ...and coming back to the tab refreshes what can change elsewhere (a
+  /// location created on the map): the exact created-places count.
+  bool? _wasVisible;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final visible = Visibility.of(context);
+    // Only a RETURN to the tab: the first showing reads it anyway.
+    if (_wasVisible == false &&
+        visible &&
+        _everVisible &&
+        widget.createdPlacesOverride == null) {
+      final id = widget.profile.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) ref.invalidate(myCreatedCountProvider(id));
+      });
+    }
+    _wasVisible = visible;
+  }
+
   Future<bool> _run(Future<void> Function() action) async {
     setState(() => _busy = true);
     try {
@@ -247,22 +273,32 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
         : (achievementList.where((a) => a.isUnlocked).toList()
           ..sort((a, b) => (b.unlockedAt ?? DateTime(0))
               .compareTo(a.unlockedAt ?? DateTime(0))));
+    if (Visibility.of(context)) _everVisible = true;
     final AsyncValue<ProfileJourneyStats> journeyState =
         widget.journeyStatsOverride ??
-            ref.watch(profileJourneyStatsProvider(profile.id));
-    final journeyTile = journeyTileText(journeyState, formatGpsDistance);
+            (_everVisible
+                ? ref.watch(profileJourneyStatsProvider(profile.id))
+                : const AsyncLoading<ProfileJourneyStats>());
+    final journeyTile = journeyTileText(journeyState);
+    final distanceTile = distanceTileText(journeyState, formatGpsDistance);
     final AsyncValue<FollowCounts> followCounts = widget.followCountsOverride ??
         ref.watch(followCountsProvider(profile.id));
     // Created: an exact count query. Visited: UNIQUE places from the
     // check-ins ("N+" only if not all check-ins could be read).
+    // Both wait for the tab to be shown (a hidden tab reads nothing), so the
+    // first look is always fresh.
     final AsyncValue<int> createdPlaces = widget.createdPlacesOverride ??
-        ref.watch(myCreatedCountProvider(profile.id));
-    final visitedState = widget.visitedPlacesOverride == null
+        (_everVisible
+            ? ref.watch(myCreatedCountProvider(profile.id))
+            : const AsyncLoading<int>());
+    final visitedState = widget.visitedPlacesOverride == null && _everVisible
         ? ref.watch(myVisitedPlacesProvider(profile.id))
         : null;
-    final AsyncValue<int> visitedPlaces =
-        widget.visitedPlacesOverride ?? visitedState!.whenData((v) => v.total);
+    final AsyncValue<int> visitedPlaces = widget.visitedPlacesOverride ??
+        visitedState?.whenData((v) => v.total) ??
+        const AsyncLoading<int>();
     final visitedExact = visitedState?.value?.isComplete ?? true;
+    final locationsTile = createdTileText(createdPlaces);
     final AsyncValue<List<LocalRecordedRoute>> recentJourneys =
         widget.recentJourneysOverride ?? watchRecentJourneys(ref, profile.id);
     final inviteBalance =
@@ -290,36 +326,16 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
                 onPressed: _changeName,
                 icon: const Icon(Icons.edit_outlined),
               ),
-              counters: [
-                TravelerCounter(
-                    keyName: 'locations',
-                    label: 'Локації',
-                    value: profile.locationsCount),
-                TravelerCounter(
-                    keyName: 'followers',
-                    label: 'Стежать',
-                    value: followCounts.value?.followers,
-                    loading: followCounts.isLoading),
-                TravelerCounter(
-                    keyName: 'following',
-                    label: 'Стежу',
-                    value: followCounts.value?.following,
-                    loading: followCounts.isLoading),
-              ],
             ),
             if (_busy) const LinearProgressIndicator(),
             const SizedBox(height: AppSpacing.md),
-            PremiumStatsGrid(tiles: [
+            PremiumStatsRow(tiles: [
               PremiumStatTile(
-                  icon: Icons.bookmark_outline,
-                  label: 'Закладки',
-                  value: savedCount == null ? '—' : '$savedCount'),
-              PremiumStatTile(
-                  icon: Icons.emoji_events_outlined,
-                  label: 'Досягнення',
-                  value: achievementProgress == null
-                      ? '—'
-                      : '${achievementProgress.unlocked}'),
+                  key: const Key('profile_counter_locations'),
+                  icon: Icons.place_outlined,
+                  label: 'Локації',
+                  value: locationsTile.value,
+                  loading: locationsTile.loading),
               PremiumStatTile(
                   key: const Key('profile_stat_journeys'),
                   icon: Icons.route_outlined,
@@ -327,7 +343,34 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
                   value: journeyTile.value,
                   caption: journeyTile.caption,
                   loading: journeyTile.loading),
+              PremiumStatTile(
+                  key: const Key('profile_stat_distance'),
+                  icon: Icons.straighten,
+                  label: 'Відстань',
+                  value: distanceTile.value,
+                  loading: distanceTile.loading),
             ]),
+            const SizedBox(height: AppSpacing.sm),
+            PremiumFollowRow(
+              followers: TravelerCounter(
+                  keyName: 'followers',
+                  label: 'Стежать',
+                  value: followCounts.value?.followers,
+                  loading: followCounts.isLoading),
+              following: TravelerCounter(
+                  keyName: 'following',
+                  label: 'Стежу',
+                  value: followCounts.value?.following,
+                  loading: followCounts.isLoading),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            ProfileRecentJourneysCard(
+              ownerId: profile.id,
+              journeys: recentJourneys,
+              onOpenJourney: _openJourney,
+              onOpenAll: () => _open('journeys'),
+              loadData: _everVisible,
+            ),
             const SizedBox(height: AppSpacing.sm),
             PremiumAchievementsStrip(
               progress: achievementProgress,
@@ -368,11 +411,6 @@ class _ProfileContentState extends ConsumerState<ProfileContent> {
                   title: 'Лідерборд',
                   onTap: _open),
             ]),
-            ProfileRecentJourneysCard(
-              ownerId: profile.id,
-              journeys: recentJourneys,
-              onOpenJourney: _openJourney,
-            ),
             PremiumActionCard(title: 'Мої подорожі', rows: [
               PremiumActionRow(
                   destination: 'saved',
