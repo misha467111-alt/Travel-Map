@@ -1,23 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/theme/app_design.dart';
 import '../../map/domain/location_model.dart';
+import '../../map/presentation/external_map_launcher.dart';
 import '../../map/presentation/location_card.dart';
+import '../../map/presentation/location_create_flow.dart';
 import '../../map/presentation/map_screen.dart';
+import '../../map/providers/map_provider.dart';
 import '../../social/providers/public_profile_provider.dart';
 import '../providers/my_places_provider.dart';
+
+/// Where the pick screen starts when there is no GPS position (the same default
+/// region the map filters fall back to). Only a camera centre, never a
+/// selection.
+const _fallbackPickTarget = LatLng(50.4501, 30.5234);
+
+/// How long "Додати місце" waits for a GPS position before it simply opens the
+/// pick screen on [_fallbackPickTarget]. Normally instant: the map tab already
+/// resolved the position.
+const _gpsWait = Duration(seconds: 3);
 
 /// Phase 3.3-D -- "Мої місця": the signed-in user's own places in three
 /// separate lists: created (authored by me), saved (my bookmarks) and visited
 /// (my confirmed check-ins). Private by construction: it is only reachable from
 /// the OWN profile and every source is owner-scoped (`owner_id`, local
 /// bookmarks, `check_ins` readable only by their owner).
-class MyPlacesScreen extends StatelessWidget {
+///
+/// Phase 3.4-C2: "Додати місце" (AppBar, and the empty "Створені" list) runs
+/// the same shared create flow as the map ([pickLocationThenCreate]); after a
+/// successful create the "Створені" data is refreshed and that tab is shown.
+///
+/// Phase 3.4-C3: every place has a "map" action that hands its coordinates to
+/// an external maps app (the shared [openExternalMap], the same as Location
+/// Details' "Відкрити").
+class MyPlacesScreen extends ConsumerStatefulWidget {
   const MyPlacesScreen({
     required this.ownerId,
     this.initialTab = 0,
     this.onOpenLocation,
+    @visibleForTesting this.launchExternalMapOverride,
     super.key,
   });
 
@@ -27,36 +50,149 @@ class MyPlacesScreen extends StatelessWidget {
   /// How a place is opened; defaults to the existing location details screen.
   final void Function(BuildContext, LocationModel)? onOpenLocation;
 
+  /// Test-only seam: replaces the real `url_launcher` call of the "map" action
+  /// (see [openExternalMap]). Production code never sets this.
+  @visibleForTesting
+  final ExternalMapLauncher? launchExternalMapOverride;
+
   @override
-  Widget build(BuildContext context) => DefaultTabController(
-        length: 3,
-        initialIndex: initialTab.clamp(0, 2),
-        child: Scaffold(
-          appBar: AppBar(
-            title: const Text('Мої місця'),
-            bottom: const TabBar(
-              // Scrollable: a label is never clipped on a narrow screen or with a
-              // large system font.
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              indicatorColor: AppColors.accent,
-              labelColor: AppColors.accent,
-              tabs: [
-                Tab(key: Key('my_places_tab_created'), text: 'Створені'),
-                Tab(key: Key('my_places_tab_saved'), text: 'Збережені'),
-                Tab(key: Key('my_places_tab_visited'), text: 'Відвідані'),
-              ],
-            ),
-          ),
-          body: TabBarView(children: [
-            _CreatedTab(
-                ownerId: ownerId, open: onOpenLocation ?? _openLocation),
-            _SavedTab(open: onOpenLocation ?? _openLocation),
-            _VisitedTab(
-                ownerId: ownerId, open: onOpenLocation ?? _openLocation),
-          ]),
-        ),
+  ConsumerState<MyPlacesScreen> createState() => _MyPlacesScreenState();
+}
+
+class _MyPlacesScreenState extends ConsumerState<MyPlacesScreen> {
+  /// True from the tap until the create flow ends: a second tap cannot push a
+  /// second pick screen.
+  bool _adding = false;
+
+  /// The GPS position (a camera centre and the "my location" target) or the
+  /// fallback; never throws and never waits longer than [_gpsWait]. The
+  /// subscription keeps the auto-dispose provider alive while it is awaited.
+  Future<({LatLng target, LatLng? gps})> _startPoint() async {
+    // `onError`: without it a GPS failure would also be reported as an
+    // uncaught error; here it is expected and handled by the fallback below.
+    final subscription = ref.listenManual(
+      currentPositionProvider,
+      (_, __) {},
+      onError: (_, __) {},
+    );
+    try {
+      // The map tab has normally resolved the position already: use its state
+      // as it is (a known failure means "no GPS" at once -- the provider may be
+      // retrying, which `.future` would wait for). Only a position that is
+      // still being fetched is awaited, and only for [_gpsWait].
+      final known = ref.read(currentPositionProvider);
+      final p = known.value ??
+          (known.hasError
+              ? null
+              : await ref
+                  .read(currentPositionProvider.future)
+                  .timeout(_gpsWait));
+      if (p == null) return (target: _fallbackPickTarget, gps: null);
+      final gps = LatLng(p.latitude, p.longitude);
+      return (target: gps, gps: gps);
+    } catch (_) {
+      return (target: _fallbackPickTarget, gps: null);
+    } finally {
+      subscription.close();
+    }
+  }
+
+  Future<void> _addPlace(TabController tabs) async {
+    if (_adding) return;
+    setState(() => _adding = true);
+    try {
+      final start = await _startPoint();
+      if (!mounted) return;
+      final created = await pickLocationThenCreate(
+        context,
+        ref,
+        initialTarget: start.target,
+        userPosition: start.gps,
       );
+      if (!created || !mounted) return;
+      // The new place is the owner's own row (any moderation status): reload
+      // the created list and the exact total (the profile reads the same
+      // count), then show it.
+      ref.invalidate(myCreatedLocationsProvider);
+      ref.invalidate(myCreatedCountProvider);
+      tabs.animateTo(0);
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  /// Opens this place's coordinates in an external maps app. Missing/invalid
+  /// coordinates are not launched; any failure is a SnackBar, as in Location
+  /// Details.
+  Future<void> _openOnMap(BuildContext context, LocationModel location) async {
+    final launched = await openExternalMap(
+      location.latitude,
+      location.longitude,
+      launcher: widget.launchExternalMapOverride,
+    );
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не вдалося відкрити карти.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ownerId = widget.ownerId;
+    final onOpenLocation = widget.onOpenLocation;
+    return DefaultTabController(
+      length: 3,
+      initialIndex: widget.initialTab.clamp(0, 2),
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Мої місця'),
+          actions: [
+            Builder(
+              builder: (tabContext) => IconButton(
+                key: const Key('my_places_add_place'),
+                tooltip: 'Додати місце',
+                color: AppColors.accent,
+                onPressed: _adding
+                    ? null
+                    : () => _addPlace(DefaultTabController.of(tabContext)),
+                icon: const Icon(Icons.add_location_alt_outlined),
+              ),
+            ),
+          ],
+          bottom: const TabBar(
+            // Scrollable: a label is never clipped on a narrow screen or with a
+            // large system font.
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            indicatorColor: AppColors.accent,
+            labelColor: AppColors.accent,
+            tabs: [
+              Tab(key: Key('my_places_tab_created'), text: 'Створені'),
+              Tab(key: Key('my_places_tab_saved'), text: 'Збережені'),
+              Tab(key: Key('my_places_tab_visited'), text: 'Відвідані'),
+            ],
+          ),
+        ),
+        body: TabBarView(children: [
+          _CreatedTab(
+            ownerId: ownerId,
+            open: onOpenLocation ?? _openLocation,
+            // Null while a create flow is running: the empty-state button is
+            // disabled exactly like the AppBar one.
+            onAddPlace: _adding ? null : _addPlace,
+            openMap: _openOnMap,
+          ),
+          _SavedTab(open: onOpenLocation ?? _openLocation, openMap: _openOnMap),
+          _VisitedTab(
+            ownerId: ownerId,
+            open: onOpenLocation ?? _openLocation,
+            openMap: _openOnMap,
+          ),
+        ]),
+      ),
+    );
+  }
 }
 
 void _openLocation(BuildContext context, LocationModel location) {
@@ -90,6 +226,7 @@ class _PlacesList<T> extends StatelessWidget {
     required this.builder,
     this.header,
     this.footer,
+    this.emptyAction,
   });
 
   final AsyncValue<List<T>> value;
@@ -100,6 +237,10 @@ class _PlacesList<T> extends StatelessWidget {
   final Widget Function(BuildContext, T) builder;
   final Widget? header;
   final Widget? footer;
+
+  /// An action under the text of the plain empty state (not shown while loading,
+  /// on error, or when the list has a header).
+  final Widget? emptyAction;
 
   @override
   Widget build(BuildContext context) {
@@ -138,6 +279,10 @@ class _PlacesList<T> extends StatelessWidget {
                   Text(emptyText,
                       textAlign: TextAlign.center,
                       style: theme.textTheme.titleMedium),
+                  if (emptyAction != null) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    emptyAction!,
+                  ],
                 ]),
               ),
             )
@@ -170,10 +315,20 @@ class _PlacesList<T> extends StatelessWidget {
 const _createdPage = 100;
 
 class _CreatedTab extends ConsumerStatefulWidget {
-  const _CreatedTab({required this.ownerId, required this.open});
+  const _CreatedTab({
+    required this.ownerId,
+    required this.open,
+    required this.onAddPlace,
+    required this.openMap,
+  });
 
   final String ownerId;
   final void Function(BuildContext, LocationModel) open;
+  final void Function(BuildContext, LocationModel) openMap;
+
+  /// Starts the create flow (given the screen's tab controller); null disables
+  /// the empty-state button.
+  final void Function(TabController)? onAddPlace;
 
   @override
   ConsumerState<_CreatedTab> createState() => _CreatedTabState();
@@ -198,6 +353,14 @@ class _CreatedTabState extends ConsumerState<_CreatedTab> {
       keyName: 'created',
       emptyIcon: Icons.add_location_alt_outlined,
       emptyText: 'Ви ще не створили жодної локації',
+      emptyAction: FilledButton.icon(
+        key: const Key('my_places_empty_add_place'),
+        onPressed: widget.onAddPlace == null
+            ? null
+            : () => widget.onAddPlace!(DefaultTabController.of(context)),
+        icon: const Icon(Icons.add_location_alt_outlined),
+        label: const Text('Додати місце'),
+      ),
       onRetry: () {
         ref.invalidate(myCreatedLocationsProvider(key));
         ref.invalidate(myCreatedCountProvider(ownerId));
@@ -235,17 +398,18 @@ class _CreatedTabState extends ConsumerState<_CreatedTab> {
               compact: true,
               onTap: () => widget.open(context, location),
             ),
-            if (label.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(
-                    left: AppSpacing.sm, bottom: AppSpacing.xs),
-                child: Text('Статус: $label',
-                    key: Key('my_place_status_${location.id}'),
-                    style: theme.textTheme.labelMedium?.copyWith(
-                        color: location.status == 'approved'
-                            ? AppColors.accent
-                            : AppColors.textSecondary)),
-              ),
+            _PlaceFooter(
+              location: location,
+              openMap: widget.openMap,
+              info: label.isEmpty
+                  ? null
+                  : Text('Статус: $label',
+                      key: Key('my_place_status_${location.id}'),
+                      style: theme.textTheme.labelMedium?.copyWith(
+                          color: location.status == 'approved'
+                              ? AppColors.accent
+                              : AppColors.textSecondary)),
+            ),
           ],
         );
       },
@@ -254,9 +418,10 @@ class _CreatedTabState extends ConsumerState<_CreatedTab> {
 }
 
 class _SavedTab extends ConsumerWidget {
-  const _SavedTab({required this.open});
+  const _SavedTab({required this.open, required this.openMap});
 
   final void Function(BuildContext, LocationModel) open;
+  final void Function(BuildContext, LocationModel) openMap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -305,6 +470,7 @@ class _SavedTab extends ConsumerWidget {
                 .read(savedPublicLocationsProvider.notifier)
                 .toggle(location.id),
           ),
+          _PlaceFooter(location: location, openMap: openMap),
         ],
       ),
     );
@@ -312,10 +478,15 @@ class _SavedTab extends ConsumerWidget {
 }
 
 class _VisitedTab extends ConsumerWidget {
-  const _VisitedTab({required this.ownerId, required this.open});
+  const _VisitedTab({
+    required this.ownerId,
+    required this.open,
+    required this.openMap,
+  });
 
   final String ownerId;
   final void Function(BuildContext, LocationModel) open;
+  final void Function(BuildContext, LocationModel) openMap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -361,10 +532,10 @@ class _VisitedTab extends ConsumerWidget {
               compact: true,
               onTap: () => open(context, location),
             ),
-            Padding(
-              padding: const EdgeInsets.only(
-                  left: AppSpacing.sm, bottom: AppSpacing.xs),
-              child: Text(
+            _PlaceFooter(
+              location: location,
+              openMap: openMap,
+              info: Text(
                   'Остання: ${_date(visit.lastVisit)} · '
                   '${visit.visits} ${visit.visits == 1 ? 'відвідування' : 'відвідувань'}',
                   key: Key('my_place_visit_${location.id}'),
@@ -375,4 +546,49 @@ class _VisitedTab extends ConsumerWidget {
       },
     );
   }
+}
+
+/// The row under a place card: its optional info text and the "map" action
+/// (Phase 3.4-C3). A separate row, not part of the card, so the action's 48 dp
+/// target never overlaps the card's own tap area (details) and the card keeps
+/// its width for the text.
+class _PlaceFooter extends StatelessWidget {
+  const _PlaceFooter({
+    required this.location,
+    required this.openMap,
+    this.info,
+  });
+
+  final LocationModel location;
+  final void Function(BuildContext, LocationModel) openMap;
+  final Widget? info;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        // Room below the row only: otherwise it sits half-way between two cards
+        // and reads as belonging to the next one.
+        padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+        child: Row(children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(left: AppSpacing.sm),
+              child: info ?? const SizedBox.shrink(),
+            ),
+          ),
+          IconButton(
+            key: Key('my_place_map_${location.id}'),
+            tooltip: 'Відкрити в картах: ${location.title}',
+            onPressed: () => openMap(context, location),
+            color: AppColors.accent,
+            iconSize: 22,
+            // The theme fixes icon buttons at 40 dp; this one is a full 48 dp
+            // target (min == max, or the theme's maximum would contradict it).
+            style: IconButton.styleFrom(
+              minimumSize: const Size.square(48),
+              maximumSize: const Size.square(48),
+            ),
+            icon: const Icon(Icons.map_outlined),
+          ),
+        ]),
+      );
 }

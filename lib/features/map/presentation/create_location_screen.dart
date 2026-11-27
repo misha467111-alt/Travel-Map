@@ -54,15 +54,16 @@ List<LocationCategoryDefinition> get _realCategories =>
 /// (nothing is disposed/recreated).
 ///
 /// Pushed via `Navigator.push(MaterialPageRoute(...))` from
-/// `_MapScreenState._addLocation` -- matches every other in-feature flow
-/// in `map_screen.dart`, none of which use GoRouter (GoRouter here is
-/// reserved for the app's four top-level, URL-addressable sections).
+/// `addLocationAtPoint` (`location_create_flow.dart`, shared by the map and
+/// "Мої місця") -- matches every other in-feature flow in `map_screen.dart`,
+/// none of which use GoRouter (GoRouter here is reserved for the app's four
+/// top-level, URL-addressable sections).
 ///
 /// Pops with `true` only after a fully successful create (repository call
 /// + `viewportLocationsProvider` invalidation already done). The caller
-/// is responsible for showing `locationPendingReviewMessage` on the map's
-/// own `Scaffold`, since a `SnackBar` shown here would be torn down by the
-/// pop before it could ever be read.
+/// (`addLocationAtPoint`) is responsible for showing
+/// `locationPendingReviewMessage` on its own `Scaffold`, since a `SnackBar`
+/// shown here would be torn down by the pop before it could ever be read.
 class CreateLocationScreen extends ConsumerStatefulWidget {
   const CreateLocationScreen({
     required this.point,

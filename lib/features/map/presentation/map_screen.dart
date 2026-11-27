@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../controllers/profile_controller.dart';
@@ -36,24 +35,16 @@ import '../../personalization/traveler_marker.dart';
 import '../../../core/theme/app_design.dart';
 import '../../navigation/presentation/scalable_locations_screen.dart';
 import 'create_location_screen.dart';
-import 'location_pick_screen.dart';
+import 'external_map_launcher.dart';
+import 'location_create_flow.dart';
 import 'search_screen.dart';
 import '../../gps/presentation/gps_journey_history_screen.dart';
 import '../../gps/presentation/gps_recording_map_screen.dart';
 
-/// Shown after a successful [LocationsRepository.createLocation] call.
-/// Deliberately does not claim the location is already public: every new
-/// location is inserted with `status = 'draft'` and only becomes visible
-/// to map queries once the moderation pipeline (`moderate-content`
-/// Edge Function -> `record_location_moderation_result`) approves it --
-/// see `create_location_with_xp` / `travel_locations_in_bounds_v2`.
-/// `@visibleForTesting` only so a test can assert the UI actually shows
-/// this exact text, without needing to drive the private
-/// `_AddLocationDialog`/`_addLocation` flow through a full `GoogleMap`
-/// widget test harness.
-@visibleForTesting
-const locationPendingReviewMessage =
-    'Локацію створено та відправлено на перевірку';
+// These two moved to shared files (Phase 3.4-C1); re-exported so existing
+// importers of this library keep compiling unchanged.
+export 'external_map_launcher.dart' show ExternalMapLauncher;
+export 'location_create_flow.dart' show locationPendingReviewMessage;
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -233,59 +224,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     WidgetRef ref, {
     required LatLng initialTarget,
     LatLng? initialPicked,
-  }) async {
-    if (!ref.read(isOnlineProvider)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Для цієї дії потрібен інтернет')),
+  }) =>
+      // The flow itself is shared (location_create_flow.dart); only the map's
+      // last known GPS position is supplied from here.
+      pickLocationThenCreate(
+        context,
+        ref,
+        initialTarget: initialTarget,
+        initialPicked: initialPicked,
+        userPosition: _lastUserLatitude == null
+            ? null
+            : LatLng(_lastUserLatitude!, _lastUserLongitude!),
       );
-      return;
-    }
-    final picked = await Navigator.of(context).push<LatLng>(
-      MaterialPageRoute<LatLng>(
-        fullscreenDialog: true,
-        builder: (_) => LocationPickScreen(
-          initialTarget: initialTarget,
-          initialPicked: initialPicked,
-          userPosition: _lastUserLatitude == null
-              ? null
-              : LatLng(_lastUserLatitude!, _lastUserLongitude!),
-        ),
-      ),
-    );
-    if (picked == null || !context.mounted) return;
-    await _addLocation(context, ref, picked);
-  }
-
-  Future<void> _addLocation(
-    BuildContext context,
-    WidgetRef ref,
-    LatLng point,
-  ) async {
-    if (!ref.read(isOnlineProvider)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Для цієї дії потрібен інтернет')),
-      );
-      return;
-    }
-    // CreateLocationScreen owns the actual createLocation() call and the
-    // viewportLocationsProvider invalidation itself (so it can show its
-    // own submitting/loading state); it only pops with `true` once both
-    // have already completed successfully. The pending-review message is
-    // shown from here, on the map's own Scaffold, because a SnackBar
-    // shown from the screen we just popped would be torn down before it
-    // could ever be read.
-    final created = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
-        fullscreenDialog: true,
-        builder: (_) => CreateLocationScreen(point: point),
-      ),
-    );
-    if (created == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text(locationPendingReviewMessage)),
-      );
-    }
-  }
 
   void _showLocationDetails(
     BuildContext context,
@@ -707,7 +657,7 @@ class MapSearchAction extends StatelessWidget {
 /// underscore-private) -- unlike this file's other private helpers --
 /// specifically so a widget test can pump it in isolation without
 /// mounting the full [MapScreen] and its provider graph (same rationale
-/// as [locationPendingReviewMessage] above and the public
+/// as [locationPendingReviewMessage] (in `location_create_flow.dart`) and the public
 /// `LocationDetailsContent`/`MapLocationPreview` in this same file).
 @visibleForTesting
 class MapQuickActions extends StatelessWidget {
@@ -962,11 +912,6 @@ typedef UpdateLocationCall = Future<void> Function({
 /// [LocationDetailsContent.deleteLocationOverride].
 typedef DeleteLocationCall = Future<void> Function(String locationId);
 
-/// Location Details External Maps Phase 3A -- matches `url_launcher`'s own
-/// `launchUrl` signature closely enough for a test seam: see
-/// [LocationDetailsContent.launchExternalMapOverride].
-typedef ExternalMapLauncher = Future<bool> Function(Uri uri);
-
 /// Owner Location Management Phase 1: an owner may manage their own
 /// location only while the backend itself would actually allow it --
 /// `locations_update`/`locations_delete` RLS and `update_own_location`
@@ -1060,25 +1005,17 @@ class _LocationDetailsContentState
   /// owner state, or XP; failure (no handler, launch refused) is caught
   /// and surfaced the same way `_buildRoute`/`_checkIn` already do.
   Future<void> _openExternalMap(LocationModel location) async {
-    final uri = Uri.https('www.google.com', '/maps/search/', {
-      'api': '1',
-      'query': '${location.latitude},${location.longitude}',
-    });
-    final launcher = widget.launchExternalMapOverride ??
-        (target) => launchUrl(target, mode: LaunchMode.externalApplication);
-    try {
-      final launched = await launcher(uri);
-      if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не вдалося відкрити карти.')),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Не вдалося відкрити карти.')),
-        );
-      }
+    // The URL and the launch itself are shared (external_map_launcher.dart); a
+    // refusal and a thrown error both come back as `false`.
+    final launched = await openExternalMap(
+      location.latitude,
+      location.longitude,
+      launcher: widget.launchExternalMapOverride,
+    );
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не вдалося відкрити карти.')),
+      );
     }
   }
 

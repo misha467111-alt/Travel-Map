@@ -115,6 +115,10 @@ void main() {
   group('created', () {
     testWidgets('shows my locations with their moderation status',
         (tester) async {
+      // The list builds lazily: a tall screen, so all four places are built.
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       await tester.pumpWidget(places(overrides: [
         myCreatedLocationsProvider((ownerId: 'me', limit: 100))
             .overrideWith((ref) async => [
@@ -665,6 +669,10 @@ void main() {
 
     testWidgets('created: exact total, "Показати ще" loads the next page',
         (tester) async {
+      // The list builds lazily: a tall screen, so its footer is built.
+      tester.view.physicalSize = const Size(800, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
       await tester.pumpWidget(places(overrides: [
         myCreatedCountProvider('me').overrideWith((ref) async => 5),
         myCreatedLocationsProvider((ownerId: 'me', limit: 100)).overrideWith(
@@ -678,6 +686,11 @@ void main() {
       Text total() =>
           tester.widget<Text>(find.byKey(const Key('my_places_created_total')));
       expect(total().data, 'Показано 3 із 5');
+      // Each card has a row with its map action now, so the button is below the
+      // 600 dp test screen: scroll to it first.
+      await tester
+          .ensureVisible(find.byKey(const Key('my_places_created_more')));
+      await tester.pump();
       await tester.tap(find.byKey(const Key('my_places_created_more')));
       await settle(tester);
       expect(total().data, 'Усього: 5');
